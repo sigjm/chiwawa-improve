@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import inspect
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, cast
 
@@ -28,6 +29,11 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from chiwawa_backend.schemas.trips import TripRead
+
+# ponytail: 앱 로깅 설정이 없어 uvicorn 의 로거를 빌린다.
+# (기본 설정에서도 콘솔에 찍힌다.)
+# 앱 로깅을 구성하게 되면 __name__ 로거로 바꾼다.
+_log = logging.getLogger("uvicorn.error")
 
 PHOTO_SEARCH_MAX_CANDIDATES = 5
 PHOTO_UPLOAD_MAX_BYTES = 20 * 1024 * 1024
@@ -85,6 +91,14 @@ async def search_uploaded_photo_places(
     # SNS 저장본·스크린샷은 대개 지워져 있어 None 이 흔하다.
     exif = read_exif(context.image_bytes)
     has_capture_location = exif.latitude is not None and exif.longitude is not None
+    # 같은 도시 안의 지점 구분은 촬영 좌표에 달려 있다. 기기·브라우저가 좌표를
+    # 지우고 올리는지 서버에서 바로 볼 수 있게 남긴다 (좌표 값은 남기지 않는다).
+    _log.info(
+        "사진 업로드: 촬영 좌표 %s (%s, %dKB)",
+        "있음" if has_capture_location else "없음",
+        context.content_type,
+        len(context.image_bytes) // 1024,
+    )
     trip_latitude, trip_longitude = await _trip_coordinates(
         None if has_capture_location else context.trip_area,
         trip,

@@ -491,6 +491,24 @@ async def test_photo_upload_without_exif_sends_no_location_hint() -> None:
 
 
 @pytest.mark.anyio
+async def test_photo_upload_logs_whether_capture_location_arrived(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # 기기에서 올린 사진에 촬영 좌표가 실제로 도착하는지
+    # 서버 로그로 확인할 수 있어야 한다. 좌표 값 자체는 남기지 않는다.
+    caplog.set_level("INFO", logger="uvicorn.error")
+
+    _ = await _upload(CapturingRecognizer(), _jpeg_with_gps())
+    _ = await _upload(CapturingRecognizer(), _FAKE_PNG)
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert sum("촬영 좌표 있음" in message for message in messages) == 1
+    assert sum("촬영 좌표 없음" in message for message in messages) == 1
+    leaked = ("35.00", "135.77", "photo.jpg", "photo.png")
+    assert not any(text in message for text in leaked for message in messages)
+
+
+@pytest.mark.anyio
 async def test_photo_upload_survives_image_pillow_refuses_to_open() -> None:
     recognizer = CapturingRecognizer()
 
