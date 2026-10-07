@@ -135,7 +135,7 @@ flowchart TB
      └ 결과가 있으면 그 시드에서 멈춤. 끝까지 없으면 _around_hint
      └ 앵커 없는 시드는 _soft_prior 가 prior 를 정함: 촬영 좌표(2km) → 여행 도시 좌표(20km, 요청에 실려 오거나 Places 1회 조회) → 없음
      └ 여행 도시 조회와 글자 시드는 시작 후 60초(_OPTIONAL_BUDGET_S) 안에만
-9. seed.near 가 있으면 _prefer_near            prior 반경 안의 결과를 앞으로
+9. seed.near 가 있으면 _prefer_near            prior 반경 안의 결과를 앞으로 (촬영 좌표면 바로 앞 200m 가 그보다 먼저)
    없으면 _prefer_trip_country                 여행 국가 안의 결과를 앞으로
 10. identified = self._to_candidate(matches[0]) 식별 후보
 11. alternatives = self._build_alternatives()   동명 후보(LLM·글자 시드, 최대 2)
@@ -317,7 +317,7 @@ llm.place_name_guess == 방금 실패한 이름   → None (같은 이름 재검
 상위 문서 "증거 기반 후보" 절의 규칙을 구현하는 헬퍼입니다.
 
 ```text
-_soft_prior          앵커 없는 시드의 위치 prior(_Prior: 중심 + 반경). 촬영 좌표가 있으면 (좌표, 2km).
+_soft_prior          앵커 없는 시드의 위치 prior(_Prior: 중심 + 반경 + close_m). 촬영 좌표가 있으면 (좌표, 2km, 200m).
                      없고 요청에 trip_latitude·trip_longitude 가 쌍으로 있으면 (그 좌표, 20km) — 조회 없음.
                      그것도 없고 여행 도시가 있으면 "도시 국가"를 search_text 로 1건 찾아 (좌표, 20km).
                      도시가 없거나 못 찾거나 시간 예산을 넘겼으면 None. 쓸 시드가 있을 때만 호출된다.
@@ -327,6 +327,8 @@ _text_seeds          visible_text 에서 한 글자·글자(letter) 없는 항�
                      힌트도 여행지도 없으면 내지 않는다. confidence 는 min(llm.confidence, 0.5).
 _prefer_near         seed.near 가 있을 때 호출. prior 반경(seed.near.radius_m) 안에 있는 결과를 앞으로 옮기는
                      안정 정렬(_distance_m, haversine). 반경 안 결과가 없으면 순서 그대로.
+                     촬영 좌표 prior 는 close_m(hint_radius_m, 200m) 안의 결과를 그보다도 앞에 둔다
+                     (실측: Places 가 촬영 지점 20m 앞의 지점보다 410m 떨어진 동명 지점을 먼저 줌).
 _prefer_trip_country seed.near 가 None 일 때만 호출. Places 실제 country 가 요청 country 와 같은 결과를
                      앞으로 옮기는 안정 정렬(일치가 없으면 순서 그대로).
 _around_hint         어떤 시드도 결과가 없을 때. 힌트가 있으면 반경 200m 를 거리순으로 조회해

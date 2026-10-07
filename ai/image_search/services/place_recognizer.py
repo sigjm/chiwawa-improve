@@ -92,7 +92,8 @@ class PlaceRecognizerConfig:
     # 좌표 prior 가 없을 때 여행 도시를 대신 쓰는 반경. 도시 규모로 잡는다:
     # 더 넓히면 인접 도시(교토↔오사카 43km)의 동명 지점이 같은 우선 그룹에 들어온다
     trip_radius_m: float = 20000
-    hint_radius_m: float = 200  # 이름을 못 찾고 위치 힌트만 있을 때 탐색 반경
+    # 촬영 지점 "바로 앞"으로 보는 반경: 그 안의 결과가 최우선이고, 이름을 못 찾으면 이 안을 뒤진다
+    hint_radius_m: float = 200
     # 이름을 직접 식별하지 못한 후보(글자 검색·위치 힌트 주변)의 confidence 상한
     weak_evidence_confidence: float = 0.5
 
@@ -108,9 +109,11 @@ def _distance_m(a: tuple[float, float], b: tuple[float, float]) -> float:
 
 
 # 위치 prior: 이 좌표 주변(반경)으로 검색을 편향하고, 반경 안의 결과를 1순위로 올린다
+# close_m: 중심이 촬영 지점일 때 "바로 그 앞"으로 보는 거리. 이 안의 결과는 반경 안의 다른 결과보다도 앞선다
 class _Prior(NamedTuple):
     center: tuple[float, float]
     radius_m: float
+    close_m: float = 0
 
 
 # 이름 검색 한 번의 재료: 검색어 + 근거(confidence·출처·사유) + 위치 prior
@@ -274,7 +277,7 @@ class PlaceRecognizer:
         started: float,
     ) -> _Prior | None:
         if hint is not None:
-            return _Prior(hint, self.config.prior_radius_m)
+            return _Prior(hint, self.config.prior_radius_m, self.config.hint_radius_m)
         if request.trip_latitude is not None and request.trip_longitude is not None:
             return _Prior(
                 (request.trip_latitude, request.trip_longitude),
@@ -365,13 +368,15 @@ class PlaceRecognizer:
     # 위치 prior 반경 안의 결과를 앞으로 옮긴다 (그룹 안에서는 Places 순서 유지)
     # locationBias 는 제한이 아니라 편향이라 먼 동명 장소가 첫 결과로 올 수 있다.
     # 반경 안에 결과가 없으면(멀리서 찍은 피사체일 수 있다) 순서는 그대로.
+    # 촬영 지점 바로 앞(close_m 안)의 결과는 그보다도 앞에 둔다: 실사진 측정에서 Places 는
+    # 촬영 지점 20m 앞의 지점보다 같은 동네(410m)의 동명 지점을 먼저 돌려줬다.
     @staticmethod
     def _prefer_near(matches: list[ResolvedPlace], near: _Prior) -> list[ResolvedPlace]:
-        return sorted(
-            matches,
-            key=lambda place: _distance_m(near.center, (place.latitude, place.longitude))
-            > near.radius_m,
-        )
+        def rank(place: ResolvedPlace) -> tuple[bool, bool]:
+            distance = _distance_m(near.center, (place.latitude, place.longitude))
+            return (distance >= near.close_m, distance > near.radius_m)
+
+        return sorted(matches, key=rank)
 
     # 좌표 prior 가 없을 때 여행 국가 안의 결과를 앞으로 옮긴다 (그룹 안에서는 Places 순서 유지)
     # 비교 대상은 요청값으로 채우기 전의 Places 실제 국가다. 일치하는 결과가 없으면 순서는 그대로.

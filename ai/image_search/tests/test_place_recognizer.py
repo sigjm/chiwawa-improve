@@ -525,6 +525,30 @@ class TestEvidenceRanking:
 
         assert result.identified.place_id == "near"
 
+    # 촬영 좌표가 있으면 바로 그 앞(hint_radius_m 안)의 동명 지점이 같은 동네의 다른 지점보다 앞선다
+    # (실사진 측정: 지점 20m 앞에서 찍었는데 Places 는 410m 떨어진 지점을 먼저 돌려줬다)
+    def test_namesake_at_capture_point_outranks_one_elsewhere_nearby(self):
+        places = FakePlaces(
+            resolve_map={
+                "이치란": [
+                    resolved_place(
+                        name="이치란 나고야 사카에점", lat=35.1672, lng=136.9072, pid="sakae"
+                    ),
+                    resolved_place(
+                        name="이치란 나고야니시키점", lat=35.1697, lng=136.9041, pid="nishiki"
+                    ),
+                ]
+            },
+            nearby=[],
+        )
+        rec = make_recognizer(
+            FakeLandmark(None), FakeVision(vision_id(guess="이치란")), places
+        )
+
+        result = rec.search(req(latitude=35.16959, longitude=136.90402))
+
+        assert [c.place_id for c in result.candidates] == ["nishiki", "sakae"]
+
     # prior 반경 안에 결과가 하나도 없으면 Places 순서를 그대로 둔다 (멀리서 찍은 피사체일 수 있다)
     def test_keeps_places_order_when_nothing_inside_location_prior(self):
         places = FakePlaces(
