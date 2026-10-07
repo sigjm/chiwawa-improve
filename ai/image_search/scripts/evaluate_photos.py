@@ -107,6 +107,8 @@ def evaluate_entry(entry: dict, landmark, vision_llm, places, base_dir: Path) ->
         "status": result.status.value,
         "top_candidate": result.candidates[0].name if result.candidates else None,
         "top_source": result.candidates[0].source.value if result.candidates else None,
+        "top_confidence": result.candidates[0].confidence if result.candidates else None,
+        "top_reason": result.candidates[0].reason if result.candidates else None,
         "top_error_km": errors_km[0] if errors_km else None,
         "top_is_truth": bool(errors_km) and errors_km[0] <= SAME_PLACE_KM,
         # 정답에서 SAME_PLACE_KM 안에 있는 첫 후보의 순위 (없으면 None)

@@ -46,6 +46,8 @@ class TestEvaluate:
         row = report["photos"][0]
         assert row["label"] == "센소지"
         assert row["top_candidate"] == "센소지"
+        assert row["top_confidence"] == 0.9
+        assert row["top_reason"]
         assert row["top_error_km"] == 0
         assert row["top_is_truth"] is True
         assert row["truth_rank"] == 1
