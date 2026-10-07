@@ -20,6 +20,7 @@ from chiwawa_backend.schemas.places import (
     WantedPlaceCreateRequest,
 )
 from chiwawa_backend.services.common import require_photo_search, require_trip
+from chiwawa_backend.services.exif import read_exif
 from chiwawa_backend.services.wanted_places import create_wanted_place
 from chiwawa_backend.state import AppState, synchronized
 
@@ -68,9 +69,14 @@ async def search_uploaded_photo_places(
 
     with state.lock:
         trip = require_trip(state, context.trip_id)
+    # 촬영 위치(EXIF GPS)가 남아 있으면 장소 검색의 위치 힌트로 넘긴다.
+    # SNS 저장본·스크린샷은 대개 지워져 있어 None 이 흔하다.
+    exif = read_exif(context.image_bytes)
     request = ImageSearchRequest(
         image_base64=base64.b64encode(context.image_bytes).decode("ascii"),
         image_mime_type=context.content_type,
+        latitude=exif.latitude,
+        longitude=exif.longitude,
         city=trip.city or None,
         country=trip.country or None,
         max_candidates=PHOTO_SEARCH_MAX_CANDIDATES,

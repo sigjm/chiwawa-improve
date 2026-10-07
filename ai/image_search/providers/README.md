@@ -107,7 +107,7 @@ flowchart TB
     LMOUT["LandmarkDetection"]
     LLMOUT["VisionIdentification"]
     NAME["장소명(시드)"]
-    RESOLVE["PlacesProvider.resolve_place<br/>searchText"]
+    RESOLVE["PlacesProvider.search_text<br/>searchText (여러 건 · locationBias)"]
     NEARBY["PlacesProvider.search_nearby<br/>searchNearby"]
     RP["ResolvedPlace"]
 
@@ -126,7 +126,7 @@ flowchart TB
 → LandmarkProvider · VisionLlmProvider 각각 호출
 → 원신호(LandmarkDetection · VisionIdentification) 반환
 → (상위가) 장소명 시드 선택
-→ PlacesProvider.resolve_place 로 좌표 · place_id 확정
+→ PlacesProvider.search_text 로 좌표 · place_id 확정 (위치 prior 가 있으면 그 주변으로 편향)
 → PlacesProvider.search_nearby 로 근처 후보 채움
 ```
 
@@ -135,7 +135,7 @@ flowchart TB
 ```text
 LandmarkProvider.detect(image_bytes | image_url)   → LandmarkDetection | None
 VisionLlmProvider.identify(image_bytes, mime, note)→ VisionIdentification
-PlacesProvider.resolve_place(place_name)           → ResolvedPlace
+PlacesProvider.search_text(query, location_bias)   → list[ResolvedPlace]
 PlacesProvider.search_nearby(lat, lng, category)   → list[ResolvedPlace]
 ```
 
@@ -430,14 +430,20 @@ resolve_place(place_name, language_code="ko", region_code="JP") -> ResolvedPlace
 
 ```text
 {
-  "textQuery":       query,
-  "languageCode":    "ko",
-  "regionCode":      "JP",
-  "maxResultCount":  1
+  "textQuery":     query,
+  "languageCode":  "ko",
+  "pageSize":      max_result_count,
+  "regionCode":    region_code,          // 지정했을 때만
+  "locationBias":  {                     // location_bias 를 줬을 때만
+    "circle": {
+      "center": {"latitude": ..., "longitude": ...},
+      "radius":  bias_radius_m
+    }
+  }
 }
 ```
 
-기본 `language_code="ko"` · `region_code="JP"`는 현재 코드에 고정되어 있습니다(일본 여행 맥락 가정).
+`locationBias`는 범위 제한이 아니라 편향입니다. 범위 밖의 강한 이름 일치는 그대로 돌아옵니다. `PlaceRecognizer`는 `resolve_place`를 거치지 않고 `search_text`를 `max_result_count=5`로 직접 호출해 동명 후보까지 받습니다.
 
 ### search_nearby
 
@@ -447,7 +453,8 @@ resolve_place(place_name, language_code="ko", region_code="JP") -> ResolvedPlace
 search_nearby(latitude, longitude,
               category: PlaceCategory | None = None,
               radius_m=1500, max_result_count=5,
-              language_code="ko", region_code="JP") -> list[ResolvedPlace]
+              language_code="ko", region_code=None,
+              rank_by_distance=False) -> list[ResolvedPlace]
 ```
 
 요청 payload는 원형 범위 제한을 씁니다.
@@ -455,7 +462,8 @@ search_nearby(latitude, longitude,
 ```text
 {
   "languageCode":       "ko",
-  "regionCode":         "JP",
+  "regionCode":         region_code,     // 지정했을 때만
+  "rankPreference":     "DISTANCE",      // rank_by_distance=True 일 때만 (기본은 Places 인기순)
   "maxResultCount":     max_result_count,
   "locationRestriction": {
     "circle": {
@@ -806,7 +814,7 @@ provider 테스트는 실제 네트워크·SDK 없이 결정론적으로 동작�
 - 응답 cache가 없습니다.
 - Rate Limit 대응 정책이 없습니다.
 - `resolve_place` · `search_nearby`의 `language_code="ko"` · `region_code="JP"`가 코드에 고정되어 있습니다.
-- 촬영 좌표 등 위치 힌트를 Places의 `locationBias`로 활용하지 않습니다.
+- `search_text`의 `location_bias`는 원형 편향(중심 + 반경)만 지원합니다. `PlaceRecognizer`는 `resolve_place`가 아니라 `search_text`(여러 건)와 `search_nearby(rank_by_distance=...)`를 직접 호출하며, `resolve_place`는 진단 CLI에서만 씁니다.
 - `CATEGORY_INCLUDED_TYPES` 중 여러 카테고리가 `tourist_attraction`으로 근사되며, 실제 호출 검증(CLI) 단계에서 조정할 여지로 남겨 두었습니다.
 - Cloud Vision의 내부 `error` 객체는 `InvalidProviderResponseError` 메시지에 그대로 실립니다(HTTP 4xx/5xx 본문은 `ProviderHttpError`에 포함하지 않음).
 - Gemini 모델(`gemini-3.6-flash`)과 캐스케이드는 실 API(Modal) 검증으로 확인되었으며(실사진 end-to-end 성공), `confidence` 캘리브레이션은 이후 추가 튜닝 여지가 남아 있습니다.

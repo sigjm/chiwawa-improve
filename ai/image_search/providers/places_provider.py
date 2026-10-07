@@ -83,12 +83,16 @@ class PlacesProvider:
         return results[0]
 
     # 실제 Places Text Search 를 호출하고 ResolvedPlace 리스트를 반환
+    # location_bias: (위도, 경도) 위치 prior. 결과를 제한하지 않고 그 주변으로 편향만 한다
+    #   (prior 밖의 강한 이름 일치는 그대로 돌아온다)
     def search_text(
         self,
         query: str,
         language_code: str = "ko",
         region_code: str | None = None,
         max_result_count: int = 1,
+        location_bias: tuple[float, float] | None = None,
+        bias_radius_m: float = 2000,
     ) -> list[ResolvedPlace]:
         payload: dict[str, object] = {
             "textQuery": query,
@@ -97,12 +101,21 @@ class PlacesProvider:
         }
         if region_code is not None:
             payload["regionCode"] = region_code
+        if location_bias is not None:
+            latitude, longitude = location_bias
+            payload["locationBias"] = {
+                "circle": {
+                    "center": {"latitude": latitude, "longitude": longitude},
+                    "radius": bias_radius_m,
+                },
+            }
 
         return self._post_and_parse(self.SEARCH_TEXT_URL, payload)
 
     # 좌표 주변에서 카테고리에 맞는 장소를 검색한다 (근처 추천용)
     # category 가 None 이거나 매핑이 비어 있으면 유형 필터 없이 검색한다
     # 결과가 없으면 빈 리스트를 반환한다 (resolve_place 와 달리 예외 아님)
+    # rank_by_distance: Places 기본 순위(인기순) 대신 중심에서 가까운 순으로 받는다
     def search_nearby(
         self,
         latitude: float,
@@ -112,6 +125,7 @@ class PlacesProvider:
         max_result_count: int = 5,
         language_code: str = "ko",
         region_code: str | None = None,
+        rank_by_distance: bool = False,
     ) -> list[ResolvedPlace]:
         payload: dict[str, object] = {
             "languageCode": language_code,
@@ -125,6 +139,8 @@ class PlacesProvider:
         }
         if region_code is not None:
             payload["regionCode"] = region_code
+        if rank_by_distance:
+            payload["rankPreference"] = "DISTANCE"
 
         included_types = CATEGORY_INCLUDED_TYPES.get(category) if category else None
         if included_types:

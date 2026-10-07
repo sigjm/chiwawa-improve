@@ -39,7 +39,6 @@ _MAX_ABS_LONGITUDE = 180.0
 _EXIF_COLON_DATE = re.compile(r"^\d{4}:\d{2}:\d{2}")
 
 
-
 class InvalidImageError(ValueError):
     pass
 
@@ -61,7 +60,12 @@ def read_exif(data: bytes) -> PhotoExif:
     try:
         with Image.open(io.BytesIO(data)) as image:
             exif = image.getexif()
-    except (UnidentifiedImageError, OSError, ValueError):
+    except (
+        Image.DecompressionBombError,
+        UnidentifiedImageError,
+        OSError,
+        ValueError,
+    ):
         return EMPTY_EXIF
     gps = exif.get_ifd(ExifTags.IFD.GPSInfo)
     return PhotoExif(
@@ -70,14 +74,14 @@ def read_exif(data: bytes) -> PhotoExif:
             gps,
             value_tag=ExifTags.GPS.GPSLatitude,
             ref_tag=ExifTags.GPS.GPSLatitudeRef,
-            negative_ref="S",
+            refs=("N", "S"),
             max_abs_degrees=_MAX_ABS_LATITUDE,
         ),
         longitude=_coordinate(
             gps,
             value_tag=ExifTags.GPS.GPSLongitude,
             ref_tag=ExifTags.GPS.GPSLongitudeRef,
-            negative_ref="W",
+            refs=("E", "W"),
             max_abs_degrees=_MAX_ABS_LONGITUDE,
         ),
     )
@@ -114,7 +118,7 @@ def _coordinate(
     *,
     value_tag: int,
     ref_tag: int,
-    negative_ref: str,
+    refs: tuple[str, str],
     max_abs_degrees: float,
 ) -> float | None:
     raw: object = gps.get(value_tag)
@@ -130,10 +134,14 @@ def _coordinate(
     decimal = degrees + minutes / 60 + seconds / 3600
     if abs(decimal) > max_abs_degrees:
         return None
+    # 방향 태그가 없거나 알 수 없는 값이면 반구를 정할 수 없다.
+    # 양수로 가정하면 남반구·서반구 사진이 지구 반대편 좌표가 되므로 버린다.
+    # refs 는 (양수 방향, 음수 방향) 쌍이다.
     ref: object = gps.get(ref_tag)
-    if isinstance(ref, str) and ref.strip().upper() == negative_ref:
-        decimal = -decimal
-    return decimal
+    direction = ref.strip().upper() if isinstance(ref, str) else ""
+    if direction not in refs:
+        return None
+    return -decimal if direction == refs[1] else decimal
 
 
 def _to_float(value: object) -> float | None:

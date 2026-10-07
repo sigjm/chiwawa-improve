@@ -276,7 +276,7 @@ ImageSearchRequest
 ├── image_url        str | None = None    호스팅 이미지 URL
 ├── image_path       str | None = None    로컬 파일 경로
 ├── note             str | None = None    사용자 메모 (예: "야경")
-├── latitude         float | None = None  촬영/현재 위치 힌트
+├── latitude         float | None = None  촬영 위치 힌트(EXIF GPS 등)
 ├── longitude        float | None = None
 ├── city             str | None = None    여행 맥락 힌트
 ├── country          str | None = None
@@ -318,7 +318,7 @@ image_path 만 있음       통과
 둘 다 없음               ValueError
 ```
 
-위치 힌트(`latitude`·`longitude`·`city`·`country`)는 값 범위만 검증할 뿐, 현재 도메인·서비스에서 Places 검색의 locationBias로는 활용되지 않습니다(상위 문서 "현재 한계" 참고).
+위치 힌트는 도메인에서 값 범위만 검증합니다. 서비스는 `latitude`·`longitude`가 쌍으로 있을 때 Places 이름 검색의 locationBias와 주변 탐색 중심으로 쓰고, `country`는 좌표 prior가 없을 때의 순위에, `city`는 글자 폴백의 검색 범위에 씁니다(상위 문서 "증거 기반 후보" 참고).
 
 > **관련 문서**
 >
@@ -347,7 +347,7 @@ NEARBY     근처 추천에서 나온 후보
 
 ```text
 SUCCESS   식별 + 요청한 근처 추천까지 확보 (또는 애초에 근처 미요청)
-PARTIAL   식별은 됐으나 요청한 근처 추천을 얻지 못함
+PARTIAL   식별은 됐으나 요청한 근처 추천을 얻지 못함, 또는 식별 없이 위치 힌트 주변 후보만 냄(identified = None)
 FAILED    식별 자체 실패 (시드 없음 또는 Places 확정 실패)
 ```
 

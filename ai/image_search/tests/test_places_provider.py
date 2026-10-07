@@ -360,3 +360,71 @@ class TestTypedErrors:
         provider = make_provider(handler)
         with pytest.raises(ProviderTransportError):
             provider.resolve_place("센소지")
+
+
+class TestLocationPrior:
+    # 위치 prior 가 있으면 Text Search 에 원형 locationBias 로 싣는다 (제한이 아니라 편향)
+    def test_search_text_sends_location_bias(self):
+        captured = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["body"] = json.loads(request.content)
+            return httpx.Response(200, json={"places": [google_place()]})
+
+        provider = make_provider(handler)
+        provider.search_text(
+            "블루보틀",
+            max_result_count=5,
+            location_bias=(35.0036, 135.7785),
+            bias_radius_m=800,
+        )
+
+        circle = captured["body"]["locationBias"]["circle"]
+        assert circle["center"] == {"latitude": 35.0036, "longitude": 135.7785}
+        assert circle["radius"] == 800
+        assert captured["body"]["pageSize"] == 5
+
+    # prior 가 없으면 locationBias 를 보내지 않는다 (기존 요청 형태 유지)
+    def test_search_text_omits_location_bias_without_prior(self):
+        captured = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["body"] = json.loads(request.content)
+            return httpx.Response(200, json={"places": []})
+
+        provider = make_provider(handler)
+        assert provider.search_text("블루보틀") == []
+
+        assert "locationBias" not in captured["body"]
+
+    # 촬영 위치 주변 탐색은 인기순이 아니라 거리순으로 요청한다 (카테고리 필터와 함께 쓸 수 있다)
+    def test_search_nearby_can_rank_by_distance(self):
+        captured = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["body"] = json.loads(request.content)
+            return httpx.Response(200, json={"places": []})
+
+        provider = make_provider(handler)
+        provider.search_nearby(
+            latitude=35.0,
+            longitude=135.7,
+            category=PlaceCategory.CAFE,
+            rank_by_distance=True,
+        )
+
+        assert captured["body"]["rankPreference"] == "DISTANCE"
+        assert captured["body"]["includedTypes"] == ["cafe"]
+
+    # 기본 근처 추천은 Places 기본 순위(인기순)를 그대로 쓴다
+    def test_search_nearby_default_keeps_places_ranking(self):
+        captured = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["body"] = json.loads(request.content)
+            return httpx.Response(200, json={"places": []})
+
+        provider = make_provider(handler)
+        provider.search_nearby(latitude=35.0, longitude=135.7)
+
+        assert "rankPreference" not in captured["body"]
