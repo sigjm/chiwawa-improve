@@ -48,6 +48,7 @@ class SimPlace:
     city: str
     country: str
     popularity: int = 100
+    locality: bool = False  # 도시 자체 (여행지 좌표 조회용). 검색어가 이 이름으로 시작할 때만 나온다
 
     def resolved(self) -> ResolvedPlace:
         return ResolvedPlace(
@@ -62,13 +63,17 @@ class SimPlace:
 
 # 좌표는 실제 위치 근처의 값이다. "가상"이라고 적은 곳은 동명 장소를 만들려고 넣은 것이다.
 WORLD = [
+    SimPlace("city-tokyo", "도쿄", "도쿄", 35.6812, 139.7671, "도쿄", "일본", locality=True),
+    SimPlace("city-kyoto", "교토", "교토", 35.0116, 135.7681, "교토", "일본", locality=True),
+    SimPlace("city-osaka", "오사카", "오사카", 34.6937, 135.5023, "오사카", "일본", locality=True),
+    SimPlace("city-nara", "나라", "나라", 34.6851, 135.8048, "나라", "일본", locality=True),
     SimPlace("sensoji", "센소지", "센소지", 35.7148, 139.7967, "도쿄", "일본", 900),
     SimPlace("kinkaku", "금각사", "금각사", 35.0394, 135.7292, "교토", "일본", 800),
     SimPlace("kinkaku-la", "금각사(가상 식당)", "금각사", 34.0620, -118.3000, "로스앤젤레스", "미국"),
     SimPlace("fuji", "후지산", "후지산", 35.3606, 138.7274, "후지노미야", "일본", 950),
     SimPlace("fuji-center", "후지산 세계유산센터", "후지산 세계유산센터", 35.2256, 138.6111, "후지노미야", "일본"),
     SimPlace("bluebottle", "블루보틀 커피 교토 카페", "블루보틀 커피 교토 카페", 35.0116, 135.7860, "교토", "일본"),
-    # 스타벅스: 서버(미국 동부) 근처 5곳 + 일본 3곳 + 서울 1곳
+    # 스타벅스: 서버(미국 동부) 근처 5곳 + 일본 4곳(교토에 둘) + 서울 1곳
     SimPlace("sb-ashburn", "스타벅스 애슈번", "스타벅스", 39.0440, -77.4880, "애슈번", "미국"),
     SimPlace("sb-sterling", "스타벅스 스털링", "스타벅스", 39.0062, -77.4286, "스털링", "미국"),
     SimPlace("sb-reston", "스타벅스 레스턴", "스타벅스", 38.9586, -77.3570, "레스턴", "미국"),
@@ -77,6 +82,7 @@ WORLD = [
     SimPlace("sb-seoul", "스타벅스 명동", "스타벅스", 37.5636, 126.9850, "서울", "대한민국"),
     SimPlace("sb-shibuya", "스타벅스 시부야 츠타야", "스타벅스", 35.6595, 139.7005, "도쿄", "일본"),
     SimPlace("sb-kyoto", "스타벅스 교토 산조오하시", "스타벅스", 35.0090, 135.7716, "교토", "일본"),
+    SimPlace("sb-kyoto-ninenzaka", "스타벅스 교토 니넨자카", "스타벅스", 34.9980, 135.7806, "교토", "일본"),
     SimPlace("sb-osaka", "스타벅스 도톤보리", "스타벅스", 34.6687, 135.5013, "오사카", "일본"),
     # 이치란: 미국 2곳 + 일본 3곳
     SimPlace("ichiran-bk", "이치란 브루클린", "이치란", 40.7074, -73.9330, "뉴욕", "미국"),
@@ -114,7 +120,12 @@ class SimPlaces:
         self.calls += 1
         wanted = query.casefold()
         origin = location_bias or SERVER_IP_LOCATION
-        matches = [place for place in WORLD if place.key.casefold() in wanted]
+        matches = [
+            place
+            for place in WORLD
+            if place.key.casefold() in wanted
+            and (not place.locality or wanted.startswith(place.key.casefold()))
+        ]
         matches.sort(
             key=lambda place: (
                 place.key.casefold() != wanted
@@ -149,7 +160,8 @@ class SimPlaces:
         nearby = [
             place
             for place in WORLD
-            if distance_km(center, (place.lat, place.lng)) * 1000 <= radius_m
+            if not place.locality
+            and distance_km(center, (place.lat, place.lng)) * 1000 <= radius_m
         ]
         if rank_by_distance:
             nearby.sort(key=lambda place: distance_km(center, (place.lat, place.lng)))
@@ -258,8 +270,8 @@ SCENARIOS = [
     ),
     Scenario(
         "chain-no-prior",
-        "체인점 + 좌표 없음, 상위 5건이 전부 서버 근처 지점",
-        "sb-kyoto",
+        "체인점 + 좌표 없음, 상위 5건이 전부 서버 근처 지점 (같은 도시에 지점이 둘)",
+        "sb-kyoto-ninenzaka",
         llm=vision("스타벅스", CAFE),
         request={"city": "교토", "country": "일본"},
     ),
