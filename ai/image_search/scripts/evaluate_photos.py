@@ -14,6 +14,7 @@
 #       "truth_latitude": 34.9949, "truth_longitude": 135.7850,   // 정답 좌표 (필수)
 #       "city": "교토", "country": "일본",             // 여행 맥락 (선택)
 #       "latitude": 34.9951, "longitude": 135.7848,    // 촬영 좌표 힌트 (선택, Backend 가 EXIF 에서 읽어 넘기는 값)
+#       "trip_latitude": 35.0116, "trip_longitude": 135.7681,     // 여행 도시 좌표 (선택, Backend 가 한 번 찾아 넘기는 값)
 #       "note": "야경"                                 // 사용자 메모 (선택)
 #     }
 #   ]
@@ -36,7 +37,17 @@ from ai.image_search.services.place_recognizer import PlaceRecognizer
 
 # 정답과 같은 장소로 보는 거리. 정답 좌표와 Places 핀이 같은 부지 안에서 어긋나는 정도를 감안한다
 SAME_PLACE_KM = 0.15
-_REQUEST_FIELDS = ("image_path", "image_url", "note", "latitude", "longitude", "city", "country")
+_REQUEST_FIELDS = (
+    "image_path",
+    "image_url",
+    "note",
+    "latitude",
+    "longitude",
+    "city",
+    "country",
+    "trip_latitude",
+    "trip_longitude",
+)
 
 
 # 두 좌표 (위도, 경도) 사이의 거리(km).
@@ -104,6 +115,8 @@ def evaluate_entry(entry: dict, landmark, vision_llm, places, base_dir: Path) ->
             None,
         ),
         "candidates": [candidate.name for candidate in result.candidates],
+        "candidate_errors_km": errors_km,
+        "candidate_sources": [candidate.source.value for candidate in result.candidates],
         "places_calls": counting.calls,
         # 프롬프트 튜닝용 원신호: 이름 추정과, 읽은 글자가 어떤 순서로 왔는지
         "landmark": result.signals.landmark.name if result.signals.landmark else None,

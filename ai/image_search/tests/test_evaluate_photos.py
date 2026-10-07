@@ -91,6 +91,9 @@ class TestEvaluate:
         assert row["top_is_truth"] is False
         assert row["top_error_km"] > SAME_PLACE_KM
         assert row["truth_rank"] == 2
+        # 후보마다 오차와 출처를 남겨, 정답이 동명 후보인지 근처 추천인지 구분할 수 있다
+        assert row["candidate_errors_km"][1] <= SAME_PLACE_KM
+        assert len(row["candidate_sources"]) == len(row["candidates"]) == 2
         assert row["place_name_guess"] == "이치란"
         assert report["summary"]["top_is_truth"] == 0
         assert report["summary"]["truth_in_candidates"] == 1
@@ -144,3 +147,26 @@ class TestEvaluate:
         evaluate(manifest, FakeLandmark(None), FakeVision(vision_id()), places)
 
         assert places.bias_calls == [(35.0091, 135.7718)]
+
+    # Backend 가 넘기는 여행 도시 좌표도 요청으로 전달된다 (인식 모듈이 도시를 다시 찾지 않는다)
+    def test_passes_trip_coordinates(self, tmp_path):
+        manifest = write_manifest(
+            tmp_path,
+            [
+                {
+                    "image_path": "photo.jpg",
+                    "truth_latitude": 35.0090,
+                    "truth_longitude": 135.7716,
+                    "city": "교토",
+                    "country": "일본",
+                    "trip_latitude": 35.0116,
+                    "trip_longitude": 135.7681,
+                }
+            ],
+        )
+        places = FakePlaces(resolved=resolved_place(lat=35.0090, lng=135.7716), nearby=[])
+
+        report = evaluate(manifest, FakeLandmark(None), FakeVision(vision_id()), places)
+
+        assert places.bias_calls == [(35.0116, 135.7681)]
+        assert report["photos"][0]["places_calls"] == 2  # 이름 검색 1 + 근처 검색 1 (도시 조회 없음)
