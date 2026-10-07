@@ -30,6 +30,8 @@ class PhotoPlaceCandidateRead(ApiModel):
     longitude: float
     confidence: float = Field(ge=0, le=1)
     reason: str
+    # 인식 서비스의 장소 카테고리 코드 (예: CAFE). 화면 표시는 클라이언트가 한다.
+    category: str | None = None
 
 
 class PhotoPlaceSearchResponse(ApiModel):

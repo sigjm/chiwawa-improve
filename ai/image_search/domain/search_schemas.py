@@ -40,6 +40,10 @@ class ImageSearchRequest(BaseModel):
     # 이름 검색을 그 주변으로 편향하고, 이름을 못 찾으면 그 주변 장소를 후보로 낸다.
     latitude: float | None = Field(default=None, ge=-90, le=90)
     longitude: float | None = Field(default=None, ge=-180, le=180)
+    # 여행 도시의 좌표 (선택). 촬영 위치 힌트가 없을 때 쓰는 약한 위치 prior 다.
+    # 호출자가 실어 보내면 이 모듈이 Places 로 도시를 다시 찾지 않는다.
+    trip_latitude: float | None = Field(default=None, ge=-90, le=90)
+    trip_longitude: float | None = Field(default=None, ge=-180, le=180)
     city: str | None = Field(default=None, min_length=1)  # 여행 맥락 힌트
     country: str | None = Field(default=None, min_length=1)
     max_candidates: int = Field(default=5, ge=1)  # 반환 후보 최대 개수

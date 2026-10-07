@@ -739,6 +739,54 @@ class TestTripAreaPrior:
         assert result.identified.place_id == "kyoto"
         assert [c.place_id for c in result.candidates] == ["kyoto", "us"]
 
+    # Backend 가 여행 도시 좌표를 실어 보내면 조회 없이 그 좌표를 쓴다 (사진마다 Places 를 다시 부르지 않는다)
+    def test_supplied_trip_coordinates_skip_the_lookup(self):
+        places = FakePlaces(
+            resolve_map={
+                "스타벅스": [
+                    resolved_place(name="스타벅스 애슈번", lat=39.0440, lng=-77.4880,
+                                   country="미국", pid="us"),
+                    resolved_place(name="스타벅스 교토 산조오하시", lat=35.0090, lng=135.7716,
+                                   pid="kyoto"),
+                ],
+            },
+            nearby=[],
+        )
+        rec = make_recognizer(
+            FakeLandmark(None), FakeVision(vision_id(guess="스타벅스")), places
+        )
+
+        result = rec.search(
+            req(city="교토", country="일본", trip_latitude=35.0116, trip_longitude=135.7681)
+        )
+
+        assert places.resolve_calls == ["스타벅스"]  # "교토 일본" 조회 없음
+        assert places.bias_calls == [(35.0116, 135.7681)]
+        assert places.radius_calls == [20000]
+        assert result.identified.place_id == "kyoto"
+
+    # 촬영 좌표가 있으면 실려 온 여행 도시 좌표보다 그것이 우선한다
+    def test_location_hint_outranks_supplied_trip_coordinates(self):
+        places = FakePlaces(resolved=resolved_place(), nearby=[])
+        rec = make_recognizer(FakeLandmark(None), FakeVision(vision_id()), places)
+
+        rec.search(
+            req(latitude=37.54, longitude=127.05, trip_latitude=35.0116, trip_longitude=135.7681)
+        )
+
+        assert places.bias_calls == [(37.54, 127.05)]
+        assert places.radius_calls == [2000]
+
+    # 여행 도시 좌표가 반쪽만 오면 쓰지 않고 예전처럼 직접 조회한다
+    def test_half_trip_coordinates_fall_back_to_lookup(self):
+        places = FakePlaces(resolve_map={"교토 일본": self.KYOTO, "블루보틀": resolved_place()},
+                            nearby=[])
+        rec = make_recognizer(FakeLandmark(None), FakeVision(vision_id()), places)
+
+        rec.search(req(city="교토", country="일본", trip_latitude=35.0116))
+
+        assert places.resolve_calls == ["교토 일본", "블루보틀"]
+
     # 여행 도시 prior 의 반경은 도시 규모다: 인접 도시(교토에서 43km 떨어진 오사카)의 지점이
     # Places 첫 결과로 와도 여행 도시 안의 지점을 1순위로 둔다
     def test_adjacent_city_branch_does_not_outrank_trip_city_branch(self):

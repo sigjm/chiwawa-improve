@@ -262,7 +262,8 @@ class PlaceRecognizer:
             yield _Seed(*text_seed, prior)
 
     # 앵커가 없는 시드가 쓸 위치 prior: 촬영 좌표(힌트)가 있으면 그것을 좁은 반경으로,
-    # 없으면 여행 도시의 좌표를 Places 에서 한 번 찾아 넓은 반경으로 쓴다.
+    # 없으면 여행 도시의 좌표를 도시 규모 반경으로 쓴다. 여행 도시 좌표는 요청에 실려 오면
+    # 그것을, 아니면 Places 에서 한 번 찾아 쓴다.
     # prior 없이 이름만 검색하면 Places 가 호출 서버의 IP 위치로 편향하기 때문이다.
     # 국가만 있으면 만들지 않는다 (나라의 중심점 주변 20km 는 의미가 없다 → 국가 우선 정렬로 남긴다).
     # 조회한 첫 결과를 그 도시로 믿는다 (도시가 아닌 장소가 오는 경우는 걸러내지 않는다).
@@ -274,10 +275,15 @@ class PlaceRecognizer:
     ) -> _Prior | None:
         if hint is not None:
             return _Prior(hint, self.config.prior_radius_m)
+        if request.trip_latitude is not None and request.trip_longitude is not None:
+            return _Prior(
+                (request.trip_latitude, request.trip_longitude),
+                self.config.trip_radius_m,
+            )
         if not request.city or self._out_of_time(started):
             return None
-        # ponytail: 요청마다 여행지 좌표를 다시 찾는다(Places 호출 1회). 호출 비용이 문제 되면
-        # Backend 가 여행을 만들 때 한 번 구해 요청에 실어 보내도록 계약에 필드를 추가한다.
+        # 호출자가 좌표를 주지 않은 경우의 폴백: 요청마다 Places 를 한 번 더 부른다.
+        # (Backend 는 원격 호출일 때 도시별로 한 번만 찾아 trip_latitude/longitude 로 넘긴다.)
         try:
             found = self.places.search_text(self._scope(request), max_result_count=1)
         except Exception:
