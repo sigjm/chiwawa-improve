@@ -3,6 +3,7 @@ import 'package:chiwawa/core/models/route_planning_models.dart';
 import 'package:chiwawa/core/models/travel_models.dart';
 import 'package:chiwawa/core/saved_photo_places.dart';
 import 'package:chiwawa/features/explore/widgets/candidate_selector.dart';
+import 'package:chiwawa/features/explore/widgets/place_result_card.dart';
 import 'package:chiwawa/features/home/widgets/home_quick_actions.dart';
 import 'package:chiwawa/features/plan/widgets/route_optimization_section.dart';
 import 'package:chiwawa/features/plan/models/plan_itinerary.dart';
@@ -329,6 +330,92 @@ void main() {
       find.byKey(const ValueKey('photo-candidate-candidate-b')),
     );
     expect(selectedId, 'candidate-b');
+  });
+
+  testWidgets('candidates show why each one was suggested', (tester) async {
+    const candidates = [
+      PhotoSearchResult(
+        id: 'identified',
+        name: '이치란 도톤보리',
+        address: '오사카, 일본',
+        category: '',
+        confidence: 0.8,
+        reason: '간판의 상호가 뚜렷함',
+      ),
+      PhotoSearchResult(
+        id: 'namesake',
+        name: '이치란 시부야',
+        address: '도쿄, 일본',
+        category: '',
+        confidence: 0.65,
+        reason: '같은 이름으로 검색된 다른 장소',
+      ),
+      PhotoSearchResult(
+        id: 'no-reason',
+        name: '근거 없는 후보',
+        address: '나라, 일본',
+        category: '',
+      ),
+    ];
+
+    await tester.pumpWidget(
+      app(
+        SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            children: [
+              PlaceResultCard(
+                result: candidates.first,
+                imagePath: null,
+                isSaved: false,
+                isSaving: false,
+                onEdit: () {},
+                onDirections: () {},
+                onAddToPlan: () {},
+              ),
+              CandidateSelector(
+                candidates: candidates,
+                selected: candidates.first,
+                onSelected: (_) {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    // 대표 결과 카드에 근거가 한 줄로 보인다
+    expect(find.byKey(const ValueKey('place-result-reason')), findsOneWidget);
+    expect(find.text('간판의 상호가 뚜렷함'), findsOneWidget);
+    // 후보 목록에서는 주소 뒤에 근거가 붙어 동명 후보와 근처 추천을 구분할 수 있다
+    expect(find.text('도쿄, 일본 · 같은 이름으로 검색된 다른 장소'), findsOneWidget);
+    // 근거가 없는 후보는 주소만 보인다
+    expect(find.text('나라, 일본'), findsOneWidget);
+  });
+
+  testWidgets('result card hides the reason and category when empty',
+      (tester) async {
+    await tester.pumpWidget(
+      app(
+        PlaceResultCard(
+          result: const PhotoSearchResult(
+            id: 'plain',
+            name: '이름만 있는 장소',
+            address: '교토, 일본',
+            category: '',
+          ),
+          imagePath: null,
+          isSaved: false,
+          isSaving: false,
+          onEdit: () {},
+          onDirections: () {},
+          onAddToPlan: () {},
+        ),
+      ),
+    );
+
+    expect(find.byKey(const ValueKey('place-result-reason')), findsNothing);
+    expect(find.byKey(const ValueKey('place-result-category')), findsNothing);
   });
 
   testWidgets('duplicate route rows render independently', (tester) async {

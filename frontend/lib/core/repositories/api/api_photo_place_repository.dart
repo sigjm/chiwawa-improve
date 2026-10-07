@@ -115,6 +115,7 @@ class ApiPhotoPlaceRepository implements PhotoPlaceRepository {
       latitude: (json['latitude'] as num?)?.toDouble(),
       longitude: (json['longitude'] as num?)?.toDouble(),
       confidence: (json['confidence'] as num?)?.toDouble(),
+      reason: json['reason'] as String? ?? '',
       imagePath: imagePath,
     );
   }

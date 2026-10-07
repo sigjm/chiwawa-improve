@@ -31,6 +31,7 @@ void main() {
             'latitude': 35.7148,
             'longitude': 139.7967,
             'confidence': 0.94,
+            'reason': '랜드마크 감지 결과와 일치 (신뢰도 0.94)',
           },
         ],
       },
@@ -76,6 +77,7 @@ void main() {
       'image/png',
     );
     expect(candidates.single.searchId, 'photo-search-1');
+    expect(candidates.single.reason, '랜드마크 감지 결과와 일치 (신뢰도 0.94)');
     expect(candidates.single.imagePath, 'blob:trip-photo');
     expect(
       adapter.requests.last.path,

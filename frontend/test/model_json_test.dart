@@ -90,12 +90,16 @@ void main() {
       'latitude': 35.7148,
       'longitude': 139.7967,
       'confidence': 0.92,
+      'reason': '랜드마크 감지 결과와 일치',
       'image_path': 'assets/images/mock/mock_place_01.png',
     });
 
     expect(place.id, 'place-sensoji');
     expect(place.confidence, 0.92);
+    expect(place.reason, '랜드마크 감지 결과와 일치');
     expect(place.toJson()['name'], '아사쿠사 센소지');
+    expect(place.toJson()['reason'], '랜드마크 감지 결과와 일치');
+    expect(PhotoSearchResult.fromJson(const {'name': '이름만'}).reason, '');
   });
 
   test('TravelPreference serializes enum codes', () {

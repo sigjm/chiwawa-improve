@@ -44,6 +44,7 @@ class CandidateSelector extends StatelessWidget {
                 subtitle: [
                   candidates[index].category,
                   candidates[index].address,
+                  candidates[index].reason,
                 ].where((value) => value.trim().isNotEmpty).join(' · '),
                 leading: Icon(
                   candidates[index].hasSameIdentityAs(selected)
