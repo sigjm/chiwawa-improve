@@ -40,6 +40,9 @@ class ApiPhotoPlaceRepository implements PhotoPlaceRepository {
     if (upload.isEmpty) {
       throw const ApiException('선택한 사진 파일이 비어 있어요.');
     }
+    if (upload.bytes.length > maxPhotoUploadBytes) {
+      throw const ApiException('20MB 이하의 사진만 분석할 수 있어요.');
+    }
     try {
       final response = await dio.post<Map<String, Object?>>(
         '/api/v1/trips/$tripId/photo-places/search-upload',
@@ -111,7 +114,7 @@ class ApiPhotoPlaceRepository implements PhotoPlaceRepository {
       searchId: searchId,
       name: json['name'] as String? ?? '',
       address: address,
-      category: '',
+      category: photoCategoryLabel(json['category'] as String?),
       latitude: (json['latitude'] as num?)?.toDouble(),
       longitude: (json['longitude'] as num?)?.toDouble(),
       confidence: (json['confidence'] as num?)?.toDouble(),
@@ -129,3 +132,33 @@ class ApiPhotoPlaceRepository implements PhotoPlaceRepository {
     return id;
   }
 }
+
+/// 인식 서비스의 장소 카테고리 코드(`ai/image_search` 의 PlaceCategory)를 화면 표시 이름으로 바꾼다.
+///
+/// ETC 와 모르는 코드는 빈 문자열을 돌려줘 화면에서 칩을 숨긴다.
+String photoCategoryLabel(String? code) => _photoCategoryLabels[code] ?? '';
+
+const _photoCategoryLabels = <String, String>{
+  'LANDMARK': '명소',
+  'TEMPLE_SHRINE': '사찰·신사',
+  'HISTORIC': '유적·역사',
+  'MUSEUM': '박물관',
+  'GALLERY': '미술관',
+  'ARCHITECTURE': '건축물',
+  'NATURE': '자연',
+  'PARK': '공원',
+  'GARDEN': '정원',
+  'BEACH': '해변',
+  'VIEWPOINT': '전망대',
+  'NIGHTVIEW': '야경',
+  'ONSEN': '온천',
+  'CAFE': '카페',
+  'RESTAURANT': '음식점',
+  'DESSERT': '디저트',
+  'BAR': '바·이자카야',
+  'MARKET': '시장',
+  'SHOPPING': '쇼핑',
+  'STREET': '거리',
+  'THEME_PARK': '테마파크',
+  'AQUARIUM_ZOO': '수족관·동물원',
+};
