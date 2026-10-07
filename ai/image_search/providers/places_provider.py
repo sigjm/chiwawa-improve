@@ -85,6 +85,7 @@ class PlacesProvider:
     # 실제 Places Text Search 를 호출하고 ResolvedPlace 리스트를 반환
     # location_bias: (위도, 경도) 위치 prior. 결과를 제한하지 않고 그 주변으로 편향만 한다
     #   (prior 밖의 강한 이름 일치는 그대로 돌아온다)
+    # rank_by_distance: Places 기본 순위(관련도) 대신 location_bias 에서 가까운 순으로 받는다
     def search_text(
         self,
         query: str,
@@ -93,6 +94,7 @@ class PlacesProvider:
         max_result_count: int = 1,
         location_bias: tuple[float, float] | None = None,
         bias_radius_m: float = 2000,
+        rank_by_distance: bool = False,
     ) -> list[ResolvedPlace]:
         payload: dict[str, object] = {
             "textQuery": query,
@@ -109,6 +111,8 @@ class PlacesProvider:
                     "radius": bias_radius_m,
                 },
             }
+        if rank_by_distance:
+            payload["rankPreference"] = "DISTANCE"
 
         return self._post_and_parse(self.SEARCH_TEXT_URL, payload)
 
@@ -161,7 +165,8 @@ class PlacesProvider:
                 "places.location,"
                 "places.rating,"
                 "places.userRatingCount,"
-                "places.primaryType"
+                "places.primaryType,"
+                "places.businessStatus"
             ),
         }
 
@@ -186,6 +191,9 @@ class PlacesProvider:
         # (resolve 는 결과가 1건이라, 그게 불량이면 빈 리스트→상위에서 실패로 처리됨)
         results = []
         for place in data.get("places", []):
+            # 폐업한 장소는 갈 수 없으니 후보로 쓰지 않는다 (임시 휴업·상태 미상은 남긴다)
+            if place.get("businessStatus") == "CLOSED_PERMANENTLY":
+                continue
             try:
                 results.append(self._parse_place(place))
             except ValueError:

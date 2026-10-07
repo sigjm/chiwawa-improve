@@ -118,6 +118,7 @@ class SimPlaces:
         max_result_count=1,
         location_bias=None,
         bias_radius_m=2000,
+        rank_by_distance=False,
     ):
         self.calls += 1
         wanted = query.casefold()
@@ -137,6 +138,8 @@ class SimPlaces:
                 distance_km(origin, (place.lat, place.lng)),
             )
         )
+        if rank_by_distance:
+            matches.sort(key=lambda place: distance_km(origin, (place.lat, place.lng)))
         return [place.resolved() for place in matches[:max_result_count]]
 
     # 변경 전 코드가 부르는 진입점 (실제 provider 와 같이 첫 결과만, 없으면 ValueError)

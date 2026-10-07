@@ -56,6 +56,7 @@ class PlacesResolver(Protocol):
         max_result_count: int = 1,
         location_bias: tuple[float, float] | None = None,
         bias_radius_m: float = 2000,
+        rank_by_distance: bool = False,
     ) -> list[ResolvedPlace]: ...
 
     def search_nearby(
@@ -183,11 +184,17 @@ class PlaceRecognizer:
         # Places 순서를 그대로 믿지 않고 가진 증거로 1순위를 정한다: 위치 prior 가 있으면
         # 그 반경 안의 결과를, 없으면 여행 국가 안의 결과를 앞으로.
         matches = (
-            self._prefer_near(matches, seed.near)
+            self._prefer_near(self._with_closest(seed, matches, started), seed.near)
             if seed.near is not None
             else self._prefer_trip_country(matches, request.country)
         )
         resolved = matches[0]
+        # 촬영 좌표 없이 고른 체인 지점은 어느 지점인지 가릴 근거가 없다: 확신을 낮추고 그렇게 적는다
+        if hint is None and self._has_branch_elsewhere(seed, resolved, matches[1:]):
+            seed = seed._replace(
+                confidence=min(seed.confidence, self.config.weak_evidence_confidence),
+                reason=f"{seed.reason} (사진에 촬영 위치가 없어 같은 이름의 다른 지점일 수 있음)",
+            )
         identified = self._to_candidate(
             resolved, seed.confidence, seed.reason, seed.source, category, request
         )
@@ -370,13 +377,69 @@ class PlaceRecognizer:
     # 반경 안에 결과가 없으면(멀리서 찍은 피사체일 수 있다) 순서는 그대로.
     # 촬영 지점 바로 앞(close_m 안)의 결과는 그보다도 앞에 둔다: 실사진 측정에서 Places 는
     # 촬영 지점 20m 앞의 지점보다 같은 동네(410m)의 동명 지점을 먼저 돌려줬다.
+    # 바로 앞에 첫 결과와 같은 종류의 동명 장소(체인 지점)가 여럿이면 그들끼리만 가까운 순으로
+    # 자리를 바꾼다 (역 앞 편의점 3곳 중 179m 지점이 먼저 왔고, 같은 요청에도 순서가 달라졌다).
+    # 다른 종류의 결과는 제 자리에 둔다 (골목 이름이 들어간 가게가 골목 자체를 밀어내지 않게).
+    # 첫 결과의 종류를 모르면 같은 종류라고 말할 수 없으므로 건드리지 않는다.
     @staticmethod
     def _prefer_near(matches: list[ResolvedPlace], near: _Prior) -> list[ResolvedPlace]:
-        def rank(place: ResolvedPlace) -> tuple[bool, bool]:
-            distance = _distance_m(near.center, (place.latitude, place.longitude))
-            return (distance >= near.close_m, distance > near.radius_m)
+        def distance(place: ResolvedPlace) -> float:
+            return _distance_m(near.center, (place.latitude, place.longitude))
 
-        return sorted(matches, key=rank)
+        ordered = sorted(
+            matches,
+            key=lambda place: (distance(place) >= near.close_m, distance(place) > near.radius_m),
+        )
+        kind = ordered[0].primary_type if ordered else None
+        if kind is None:
+            return ordered
+        slots = [
+            index
+            for index, place in enumerate(ordered)
+            if place.primary_type == kind and distance(place) < near.close_m
+        ]
+        for slot, place in zip(slots, sorted((ordered[i] for i in slots), key=distance)):
+            ordered[slot] = place
+        return ordered
+
+    # 촬영 좌표가 있는데 그 바로 앞에서 찾은 결과가 없으면 가까운 순으로 한 번 더 묻고,
+    # 바로 앞에서 찾은 것만 앞에 붙인다 (없으면 처음 결과 그대로 — 멀리서 찍은 피사체).
+    # 실사진 측정: 지점이 촘촘한 체인은 관련도순 5건에 바로 앞 지점이 빠지고,
+    # 이름이 똑같은 먼 장소 하나만 돌아오기도 했다.
+    def _with_closest(
+        self, seed: _Seed, matches: list[ResolvedPlace], started: float
+    ) -> list[ResolvedPlace]:
+        near = seed.near
+        if near is None or near.close_m <= 0 or self._out_of_time(started):
+            return matches
+
+        def is_close(place: ResolvedPlace) -> bool:
+            return (
+                _distance_m(near.center, (place.latitude, place.longitude)) < near.close_m
+            )
+
+        if any(is_close(place) for place in matches):
+            return matches
+        closest: dict[str, ResolvedPlace] = {}
+        for place in self._safe_search(seed, rank_by_distance=True):
+            if is_close(place):
+                closest.setdefault(place.place_id, place)
+        return [*closest.values(), *(p for p in matches if p.place_id not in closest)]
+
+    # 같은 종류의 동명 장소가 식별한 곳에서 떨어져 있으면 "다른 지점"이 있는 것이다.
+    # 같은 부지 안의 하위 장소(본당 등)는 지점이 아니므로 hint_radius_m 안은 세지 않는다.
+    def _has_branch_elsewhere(
+        self, seed: _Seed, resolved: ResolvedPlace, others: list[ResolvedPlace]
+    ) -> bool:
+        if seed.source is CandidateSource.LANDMARK or resolved.primary_type is None:
+            return False
+        here = (resolved.latitude, resolved.longitude)
+        return any(
+            other.primary_type == resolved.primary_type
+            and _distance_m(here, (other.latitude, other.longitude))
+            > self.config.hint_radius_m
+            for other in others
+        )
 
     # 좌표 prior 가 없을 때 여행 국가 안의 결과를 앞으로 옮긴다 (그룹 안에서는 Places 순서 유지)
     # 비교 대상은 요청값으로 채우기 전의 Places 실제 국가다. 일치하는 결과가 없으면 순서는 그대로.
@@ -556,7 +619,9 @@ class PlaceRecognizer:
             return None
 
     # 시드 하나를 Places 이름 검색으로 확정한다 (결과 없음·실패 모두 빈 리스트 → 다음 시드로)
-    def _safe_search(self, seed: _Seed) -> list[ResolvedPlace]:
+    def _safe_search(
+        self, seed: _Seed, rank_by_distance: bool = False
+    ) -> list[ResolvedPlace]:
         near = seed.near
         try:
             return self.places.search_text(
@@ -564,6 +629,7 @@ class PlaceRecognizer:
                 max_result_count=self._TEXT_SEARCH_RESULTS,
                 location_bias=near.center if near else None,
                 bias_radius_m=near.radius_m if near else self.config.prior_radius_m,
+                rank_by_distance=rank_by_distance,
             )
         except Exception:
             return []

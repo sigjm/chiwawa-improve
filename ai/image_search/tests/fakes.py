@@ -41,25 +41,32 @@ class FakeVision:
 class FakePlaces:
     # resolve_map 이 주어지면 검색어별로 조회 (없는 검색어는 결과 없음) — 시드별 성공/실패를 구분
     # resolve_map 의 값은 장소 하나 또는 리스트(동명 후보 여러 건)
+    # distance_map 이 주어지면 가까운 순 요청(rank_by_distance)에는 그쪽 결과를 돌려준다
     def __init__(self, resolved=None, resolve_raises=False, nearby=None,
-                 nearby_raises=False, resolve_map=None):
+                 nearby_raises=False, resolve_map=None, distance_map=None):
         self.resolved = resolved
         self.resolve_raises = resolve_raises
         self.resolve_map = resolve_map
+        self.distance_map = distance_map
         self.nearby = nearby if nearby is not None else []
         self.nearby_raises = nearby_raises
         self.resolve_calls = []
         self.bias_calls = []
         self.radius_calls = []
+        self.distance_rank_calls = []
         self.nearby_calls = []
 
     def search_text(self, query, language_code="ko", region_code=None,
-                    max_result_count=1, location_bias=None, bias_radius_m=2000):
+                    max_result_count=1, location_bias=None, bias_radius_m=2000,
+                    rank_by_distance=False):
         self.resolve_calls.append(query)
+        self.distance_rank_calls.append(rank_by_distance)
         self.bias_calls.append(location_bias)
         self.radius_calls.append(bias_radius_m)
         if self.resolve_raises:
             raise RuntimeError("Google Places 요청 실패")
+        if rank_by_distance and self.distance_map is not None:
+            return self.distance_map.get(query, [])
         if self.resolve_map is not None:
             found = self.resolve_map.get(query, [])
             return found if isinstance(found, list) else [found]
@@ -98,6 +105,6 @@ def vision_id(guess="블루보틀", cat=PlaceCategory.CAFE, conf=0.8, texts=()):
 
 
 def resolved_place(name="센소지", lat=35.7148, lng=139.7967, city="Tokyo",
-                   country="Japan", pid="p1", rating=4.5):
+                   country="Japan", pid="p1", rating=4.5, kind=None):
     return ResolvedPlace(place_id=pid, name=name, latitude=lat, longitude=lng,
-                         city=city, country=country, rating=rating)
+                         city=city, country=country, rating=rating, primary_type=kind)

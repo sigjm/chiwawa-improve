@@ -135,9 +135,12 @@ flowchart TB
      └ 결과가 있으면 그 시드에서 멈춤. 끝까지 없으면 _around_hint
      └ 앵커 없는 시드는 _soft_prior 가 prior 를 정함: 촬영 좌표(2km) → 여행 도시 좌표(20km, 요청에 실려 오거나 Places 1회 조회) → 없음
      └ 여행 도시 조회와 글자 시드는 시작 후 60초(_OPTIONAL_BUDGET_S) 안에만
-9. seed.near 가 있으면 _prefer_near            prior 반경 안의 결과를 앞으로 (촬영 좌표면 바로 앞 200m 가 그보다 먼저)
+9. seed.near 가 있으면 _with_closest → _prefer_near
+                                               촬영 좌표인데 바로 앞(200m)에 결과가 없으면 가까운 순으로 한 번 더 검색,
+                                               그다음 prior 반경 안의 결과를 앞으로 (촬영 좌표면 바로 앞 200m 가 그보다 먼저)
    없으면 _prefer_trip_country                 여행 국가 안의 결과를 앞으로
-10. identified = self._to_candidate(matches[0]) 식별 후보
+10. identified = self._to_candidate(matches[0]) 식별 후보. 촬영 좌표가 없고 _has_branch_elsewhere 면
+                                               confidence 상한(0.5)과 "다른 지점일 수 있음" 문구 적용
 11. alternatives = self._build_alternatives()   동명 후보(LLM·글자 시드, 최대 2)
 12. nearby = self._build_nearby(...)            근처 추천(남은 자리)
 13. status 판정 → ImageSearchResult 반환
@@ -329,6 +332,13 @@ _prefer_near         seed.near 가 있을 때 호출. prior 반경(seed.near.rad
                      안정 정렬(_distance_m, haversine). 반경 안 결과가 없으면 순서 그대로.
                      촬영 좌표 prior 는 close_m(hint_radius_m, 200m) 안의 결과를 그보다도 앞에 둔다
                      (실측: Places 가 촬영 지점 20m 앞의 지점보다 410m 떨어진 동명 지점을 먼저 줌).
+                     그 안에 같은 primary_type 의 결과가 여럿이면 그들끼리는 가까운 순(체인 지점),
+                     종류가 다르면 Places 순서 유지(골목 이름이 들어간 가게가 골목을 밀어내지 않게).
+_with_closest        촬영 좌표 prior(close_m > 0)인데 결과 중 close_m 안의 것이 없으면 같은 검색어를
+                     rank_by_distance=True 로 한 번 더 부르고, close_m 안의 결과만 앞에 붙인다.
+                     시간 예산을 넘겼거나 바로 앞에 없으면 처음 결과 그대로.
+_has_branch_elsewhere 식별 장소와 같은 primary_type 의 결과가 hint_radius_m(200m) 넘게 떨어져 있는가.
+                     랜드마크 시드나 primary_type 미상이면 False. 촬영 좌표가 없을 때만 쓰인다.
 _prefer_trip_country seed.near 가 None 일 때만 호출. Places 실제 country 가 요청 country 와 같은 결과를
                      앞으로 옮기는 안정 정렬(일치가 없으면 순서 그대로).
 _around_hint         어떤 시드도 결과가 없을 때. 힌트가 있으면 반경 200m 를 거리순으로 조회해

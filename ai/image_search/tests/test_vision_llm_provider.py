@@ -161,3 +161,13 @@ class TestIdentify:
 
         with pytest.raises(RuntimeError):
             provider.identify(image_bytes=b"x")
+
+
+class TestInstruction:
+    # 실측에서 Gemini 가 간판에 없는 지점명을 지어내 정답 지점이 후보에서 빠졌다.
+    # 모델 호출은 테스트하지 않으므로, 그 제한 문장이 프롬프트에서 빠지면 여기서 잡는다
+    def test_prompt_tells_model_not_to_invent_branch_names(self):
+        prompt = VisionLlmProvider._build_prompt(None)
+
+        assert "지점명이 글자로 보이거나" in prompt
+        assert "브랜드명만" in prompt

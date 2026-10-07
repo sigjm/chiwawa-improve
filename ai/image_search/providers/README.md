@@ -441,7 +441,8 @@ resolve_place(place_name, language_code="ko", region_code="JP") -> ResolvedPlace
       "center": {"latitude": ..., "longitude": ...},
       "radius":  bias_radius_m
     }
-  }
+  },
+  "rankPreference": "DISTANCE"           // rank_by_distance=True 일 때만 (기본은 Places 관련도순)
 }
 ```
 
@@ -533,7 +534,10 @@ X-Goog-FieldMask:
     places.rating
     places.userRatingCount
     places.primaryType
+    places.businessStatus
 ```
+
+`businessStatus`가 `CLOSED_PERMANENTLY`인 장소는 결과에서 뺍니다(이름 검색·근처 검색 공통). 임시 휴업과 상태 미상은 남깁니다. 실측에서 Places가 폐업한 매장을 돌려준 사례가 있었습니다.
 
 ### addressComponents 파싱
 
