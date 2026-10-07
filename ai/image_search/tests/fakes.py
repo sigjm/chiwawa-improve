@@ -50,12 +50,14 @@ class FakePlaces:
         self.nearby_raises = nearby_raises
         self.resolve_calls = []
         self.bias_calls = []
+        self.radius_calls = []
         self.nearby_calls = []
 
     def search_text(self, query, language_code="ko", region_code=None,
                     max_result_count=1, location_bias=None, bias_radius_m=2000):
         self.resolve_calls.append(query)
         self.bias_calls.append(location_bias)
+        self.radius_calls.append(bias_radius_m)
         if self.resolve_raises:
             raise RuntimeError("Google Places 요청 실패")
         if self.resolve_map is not None:
