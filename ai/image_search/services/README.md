@@ -133,7 +133,7 @@ flowchart TB
 8. for seed in self._seeds(...):               랜드마크 → LLM 추정 → 읽은 글자 순
      matches = self._safe_search(seed)         이름 검색(5건, seed.near 로 편향)
      └ 결과가 있으면 그 시드에서 멈춤. 끝까지 없으면 _around_hint
-     └ 앵커 없는 시드는 _soft_prior 가 prior 를 정함: 촬영 좌표(2km) → 여행 도시 좌표(20km, Places 1회 조회) → 없음
+     └ 앵커 없는 시드는 _soft_prior 가 prior 를 정함: 촬영 좌표(2km) → 여행 도시 좌표(20km, 요청에 실려 오거나 Places 1회 조회) → 없음
      └ 여행 도시 조회와 글자 시드는 시작 후 60초(_OPTIONAL_BUDGET_S) 안에만
 9. seed.near 가 있으면 _prefer_near            prior 반경 안의 결과를 앞으로
    없으면 _prefer_trip_country                 여행 국가 안의 결과를 앞으로
@@ -318,7 +318,8 @@ llm.place_name_guess == 방금 실패한 이름   → None (같은 이름 재검
 
 ```text
 _soft_prior          앵커 없는 시드의 위치 prior(_Prior: 중심 + 반경). 촬영 좌표가 있으면 (좌표, 2km).
-                     없고 여행 도시가 있으면 "도시 국가"를 search_text 로 1건 찾아 (좌표, 20km).
+                     없고 요청에 trip_latitude·trip_longitude 가 쌍으로 있으면 (그 좌표, 20km) — 조회 없음.
+                     그것도 없고 여행 도시가 있으면 "도시 국가"를 search_text 로 1건 찾아 (좌표, 20km).
                      도시가 없거나 못 찾거나 시간 예산을 넘겼으면 None. 쓸 시드가 있을 때만 호출된다.
 _text_seeds          visible_text 에서 한 글자·글자(letter) 없는 항목·추정 이름과 같은 항목을 빼고
                      앞에서 2개까지 낸다. 위치 힌트가 있으면 글자만, 없으면 "글자 + 여행 도시 + 국가".
@@ -674,7 +675,7 @@ Places 확정 실패      → 다음 시드(LLM 추정 → 읽은 글자)로 재
 
 ## ⚠️ 현재 한계
 
-- 위치 힌트가 촬영 위치인지 현재 위치인지 구분하지 않고 같은 prior 로 씁니다. 여행 도시 prior 는 요청마다 Places 를 한 번 더 부르며, 도시 없이 국가만 있으면 국가 우선 정렬(표기가 같을 때만 일치)로 남습니다.
+- 위치 힌트가 촬영 위치인지 현재 위치인지 구분하지 않고 같은 prior 로 씁니다. 여행 도시 좌표가 요청에 실려 오지 않으면 요청마다 Places 를 한 번 더 부르며, 도시 없이 국가만 있으면 국가 우선 정렬(표기가 같을 때만 일치)로 남습니다.
 - 두 식별기를 병행으로 부른다고 하지만 실제 호출은 순차입니다(`_safe_detect` 다음 `_safe_identify`). 병렬 앙상블은 미적용이며, `RecognitionSignals`가 확장 대비로 원신호만 보존합니다.
 - `_safe_` 래퍼가 모든 `Exception`을 일괄 흡수하므로, provider의 세부 실패 원인은 결과에 구분되어 남지 않습니다(원신호 유무로만 추론).
 - 근처 검색은 단일 `category` 필터 기준이며, 다중 카테고리 혼합은 하지 않습니다. LLM이 없으면 카테고리 없이 검색합니다.

@@ -6,11 +6,13 @@
 #   git archive <기준 커밋> ai | tar -x -C /tmp/before
 #   PYTHONPATH=/tmp/before python ai/image_search/scripts/replay_scenarios.py > before.json
 #   PYTHONPATH=.           python ai/image_search/scripts/replay_scenarios.py > after.json
+# --trip-coordinates 를 붙이면 Backend 가 여행 도시 좌표를 실어 보내는 구성(원격 배포)을 흉내 낸다.
 # import 되는 ai.image_search 가 어느 쪽이든 돌도록 PlaceRecognizer 의 공개 인터페이스만 쓴다.
 from __future__ import annotations
 
 import json
 import math
+import sys
 from dataclasses import dataclass, field
 
 from ai.image_search.domain.schemas import (
@@ -313,7 +315,23 @@ SCENARIOS = [
 ]
 
 
-def run(scenario: Scenario) -> dict:
+# Backend 의 TripAreaResolver 가 하는 일: 여행 도시를 좌표로 바꿔 요청에 싣는다
+def with_trip_coordinates(request: dict) -> dict:
+    city = next(
+        (place for place in WORLD if place.locality and place.key == request.get("city")),
+        None,
+    )
+    if city is None or "latitude" in request:
+        return request
+    return {**request, "trip_latitude": city.lat, "trip_longitude": city.lng}
+
+
+def run(scenario: Scenario, supply_trip_coordinates: bool = False) -> dict:
+    request_fields = (
+        with_trip_coordinates(scenario.request)
+        if supply_trip_coordinates
+        else scenario.request
+    )
     places = SimPlaces()
     recognizer = PlaceRecognizer(
         landmark=FixedLandmark(scenario.landmark),
@@ -322,7 +340,7 @@ def run(scenario: Scenario) -> dict:
         image_loader=lambda request: b"\xff\xd8\xff scenario",
     )
     result = recognizer.search(
-        ImageSearchRequest(image_base64="c2NlbmFyaW8=", max_candidates=5, **scenario.request)
+        ImageSearchRequest(image_base64="c2NlbmFyaW8=", max_candidates=5, **request_fields)
     )
 
     truth = next((place for place in WORLD if place.pid == scenario.truth), None)
@@ -354,7 +372,9 @@ def run(scenario: Scenario) -> dict:
 
 
 def main() -> None:
-    print(json.dumps([run(scenario) for scenario in SCENARIOS], ensure_ascii=False, indent=2))
+    supply = "--trip-coordinates" in sys.argv[1:]
+    rows = [run(scenario, supply) for scenario in SCENARIOS]
+    print(json.dumps(rows, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

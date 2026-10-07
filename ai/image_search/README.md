@@ -182,7 +182,7 @@ LLM 추정           place_name_guess            촬영 좌표(2km) → 없으�
 읽은 글자(최대 2)   글자 / 글자 + 도시·국가      위와 같음. 촬영 좌표가 없으면 검색어에도 여행지를 붙임
 ```
 
-여행 도시 좌표는 요청에 들어 있지 않으므로 "도시 국가"를 Places에서 한 번 찾아 씁니다. prior 없이 이름만 검색하면 Places가 **호출 서버의 IP 위치**로 편향하기 때문입니다(Text Search 문서). 이 조회는 앵커가 없는 시드를 실제로 검색할 때만 일어나고, 그런 요청에는 Places 호출이 1회 늘어납니다. 여행에 국가만 있으면 좌표 prior를 만들지 않습니다. 반경을 도시 규모(20km)로 둔 것은 인접 도시(교토↔오사카 43km)의 동명 지점이 같은 우선 그룹에 들어오지 않게 하기 위해서이고, 당일치기처럼 그 밖에 있는 장소는 이름이 고유하면 그대로 검색됩니다(편향이지 제한이 아님).
+여행 도시 좌표는 요청의 `trip_latitude`·`trip_longitude`에 실려 오면 그것을 쓰고, 없으면 "도시 국가"를 Places에서 한 번 찾아 씁니다. prior 없이 이름만 검색하면 Places가 **호출 서버의 IP 위치**로 편향하기 때문입니다(Text Search 문서). 직접 조회는 앵커가 없는 시드를 실제로 검색할 때만 일어나고, 그런 요청에는 Places 호출이 1회 늘어납니다. Backend는 원격(Modal) 구성일 때 도시별로 한 번만 찾아 좌표를 실어 보내므로 이 추가 호출이 없습니다. 여행에 국가만 있으면 좌표 prior를 만들지 않습니다. 반경을 도시 규모(20km)로 둔 것은 인접 도시(교토↔오사카 43km)의 동명 지점이 같은 우선 그룹에 들어오지 않게 하기 위해서이고, 당일치기처럼 그 밖에 있는 장소는 이름이 고유하면 그대로 검색됩니다(편향이지 제한이 아님).
 
 ### 시간 예산
 
@@ -412,6 +412,7 @@ ImageSearchRequest
 ├── image_path           로컬 경로 (둘 중 최소 하나 필수)
 ├── note                 사용자 메모 (예: "야경")
 ├── latitude / longitude 촬영 위치 힌트 (EXIF GPS 등, 쌍으로 있을 때만 사용)
+├── trip_latitude / trip_longitude  여행 도시 좌표 (선택, 쌍으로 있으면 도시 조회 생략)
 ├── city / country       여행 맥락 힌트
 └── max_candidates       반환 후보 최대 개수 (기본 5)
 ```
@@ -501,6 +502,7 @@ image_search/
 ├── scripts/
 │   ├── run_image_search.py               실사진 end-to-end 검증 CLI
 │   ├── replay_scenarios.py               고정 시나리오 재생(변경 전·후 위치 오차 비교)
+│   ├── evaluate_photos.py                정답 좌표를 아는 실사진으로 위치 오차 측정(실 API, 키 필요)
 │   └── export_modal_response_schema.py   응답 계약 JSON Schema 생성
 ├── docs/
 │   └── evidence-ranking-before-after.md  증거 기반 후보 적용 전·후 검증 기록
@@ -517,9 +519,9 @@ image_search/
 
 ## ⚠️ 현재 한계
 
-- 위치 prior·동명 후보·글자 폴백은 가짜 provider 테스트로만 검증했습니다. 실 API(유료) 호출로 정확도를 재측정하지는 않았고, 반경·상한 값(`PlaceRecognizerConfig`)과 Gemini `visible_text` 정렬 지시는 실사진으로 튜닝이 필요합니다.
+- 위치 prior·동명 후보·글자 폴백은 가짜 provider 테스트로만 검증했습니다. 실 API(유료) 호출로 정확도를 재측정하지는 않았고, 반경·상한 값(`PlaceRecognizerConfig`)과 Gemini `visible_text` 정렬 지시는 실사진으로 튜닝이 필요합니다. 키가 있으면 `python -m ai.image_search.scripts.evaluate_photos --manifest <사진폴더>/manifest.json`으로 잴 수 있습니다(manifest 형식은 스크립트 머리말).
 - 글자 폴백은 읽은 글자를 장소 이름으로 검색합니다. 주소판이나 안내판의 관리 주체(〇〇警察署 등)처럼 "지역"만 알려 주는 글자를 위치 prior로 따로 쓰지는 않습니다.
-- 여행 도시 prior는 요청마다 Places를 한 번 더 부릅니다(촬영 좌표·랜드마크 앵커가 없는 요청). 비용이 문제 되면 Backend가 여행을 만들 때 좌표를 한 번 구해 요청에 실어 보내도록 계약에 필드를 추가하는 편이 낫습니다.
+- 호출자가 여행 도시 좌표를 실어 보내지 않으면(Backend in-process 구성, CLI) 요청마다 Places를 한 번 더 부릅니다.
 - 여행 도시 반경(20km) 안에 같은 이름의 지점이 여럿이면 어느 지점이 1순위일지는 Places 순서에 달렸습니다(다른 지점은 동명 후보로 남음). 지점까지 맞추려면 촬영 좌표가 필요합니다.
 - 여행에 도시 없이 국가만 있으면 예전처럼 국가 우선 정렬만 하고, 이때 국가 일치는 표기가 같을 때만 인식합니다("일본" ≠ "Japan"). 이 경우 좌표 prior가 없어 Places의 IP 편향이 그대로 남습니다.
 - 요청의 위치 힌트가 촬영 위치인지 현재 위치인지 구분하지 않습니다. 현재 위치를 넘기면 그쪽으로 편향됩니다.

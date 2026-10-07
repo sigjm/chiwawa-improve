@@ -278,6 +278,8 @@ ImageSearchRequest
 ├── note             str | None = None    사용자 메모 (예: "야경")
 ├── latitude         float | None = None  촬영 위치 힌트(EXIF GPS 등)
 ├── longitude        float | None = None
+├── trip_latitude    float | None = None  여행 도시 좌표 (선택. 쌍으로 있으면 도시 조회 생략)
+├── trip_longitude   float | None = None
 ├── city             str | None = None    여행 맥락 힌트
 ├── country          str | None = None
 └── max_candidates   int = 5              반환 후보 최대 개수

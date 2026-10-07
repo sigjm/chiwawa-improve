@@ -3,7 +3,8 @@
 - 작성일: 2026-10-07
 - 기준(변경 전): `develop` @ `fab6abd`
 - 1차 개선: `1f426dc` (1~6절)
-- 2차 개선: 이 문서가 포함된 커밋 (7절). 1차에서 남긴 항목을 이어서 처리했습니다.
+- 2차 개선: `1774bcf` (7절). 1차에서 남긴 항목을 이어서 처리했습니다.
+- 3차 개선: 이 문서가 포함된 커밋 (8절). 2차에서 남긴 항목을 이어서 처리했습니다.
 - 변경 내용 설명: [`../README.md`](../README.md)의 "증거 기반 후보" 절
 
 사진 장소 검색에 [Oldcircle/geo-sleuth](https://github.com/Oldcircle/geo-sleuth)의 원칙(위치 prior, 동명 후보 순위화, 읽은 글자 폴백, 위치 힌트 주변 탐색)을 옮긴 뒤, 같은 입력에서 결과가 어떻게 달라졌는지와 결함이 실제로 고쳐졌는지를 확인한 기록입니다.
@@ -215,3 +216,96 @@ P0·P1 없음, P2 1건.
 - 여행에 도시 없이 국가만 있는 경우: 좌표 prior가 없어 IP 편향이 남고, 국가 표기가 달라도 인식하지 못함
 - 같은 도시 안의 지점 구분
 - 화면의 카테고리 칩: Backend `PhotoPlaceCandidateRead`에 카테고리가 없어 비어 있음 (빈 칩은 숨김)
+
+## 8. 3차 개선 (2026-10-07)
+
+2차에서 남긴 네 항목을 이어서 처리했습니다.
+
+| 남은 항목 | 처리 | 결과 |
+|---|---|---|
+| 실사진·실 API 정확도 측정과 튜닝 | **못 했습니다.** Google API 키가 여전히 없습니다. 대신 키만 넣으면 잴 수 있도록 측정 스크립트 [`scripts/evaluate_photos.py`](../scripts/evaluate_photos.py)를 만들었습니다 | 반경·상한 값과 Gemini 프롬프트는 측정 결과 없이 바꾸지 않았습니다 |
+| 여행 도시 좌표를 요청마다 다시 찾는 비용 | 원격(Modal) 구성에서는 Backend가 도시별로 한 번만 찾아 `trip_latitude`·`trip_longitude`로 실어 보냄 | 인식 모듈의 Places 호출 30 → 24 (8.2절) |
+| 같은 도시 안의 지점 구분 | 촬영 좌표 없이는 여전히 불가합니다. 대신 **촬영 좌표가 도착하지 못하던 원인**을 찾아 고쳤습니다(8.1절) | 웹 업로드에서 EXIF GPS가 보존됨 |
+| 화면의 카테고리 칩 | Backend 후보 응답에 `category` 추가, Flutter가 한글 이름으로 표시 | 예: `CAFE` → "카페". `ETC`와 모르는 코드는 칩을 숨김 |
+
+### 8.1 웹에서 촬영 좌표가 사라지던 문제
+
+1·2차의 "촬영 좌표가 있으면 지점까지 맞는다"는 개선은 웹 업로드에서 작동할 수 없는 상태였습니다. Flutter가 사진을 고를 때 `imageQuality: 80`을 지정했는데, 설치된 플러그인 소스를 읽어 보니 플랫폼마다 결과가 달랐습니다.
+
+| 플랫폼 | 플러그인 (설치 버전) | `imageQuality` 지정 시 | 촬영 좌표 |
+|---|---|---|---|
+| 웹 | `image_picker_for_web` 3.1.1 | `imageResizeNeeded`가 참이 되어 캔버스에 다시 그려 저장 | **사라짐** |
+| Android | `image_picker_android` 0.8.13+19 | 다시 인코딩한 뒤 `ExifDataCopier`가 GPS 태그를 옮김 | 보존 |
+| iOS | `image_picker_ios` 0.8.13+6 | 메타데이터를 꺼내 다시 인코딩한 파일에 함께 저장 | 보존 |
+
+고친 내용:
+
+- 웹에서는 `imageQuality`를 주지 않고 원본을 그대로 올립니다(`photoPickImageQuality`). Android·iOS는 그대로 80입니다.
+- 원본은 더 크므로 Backend가 4MB를 넘는 사진을 긴 변 2048px JPEG로 줄여 인식 서비스로 보냅니다. 촬영 좌표는 줄이기 전에 원본에서 읽습니다. Cloud Vision은 JSON 요청이 10MB를 넘으면 받지 않으므로(공식 문서), base64로 실으면 7.5MB쯤부터 랜드마크 감지가 실패합니다.
+- 20MB를 넘는 사진은 올리기 전에 화면에서 "20MB 이하의 사진만 분석할 수 있어요."라고 알려 줍니다.
+
+확인하지 못한 것:
+
+- 기기에서의 동작. 플러그인 소스만 읽었고 실제 브라우저·기기에서 돌려 보지는 못했습니다.
+- 모바일 앱은 OS가 좌표를 지울 수 있습니다. `AndroidManifest.xml`에 `ACCESS_MEDIA_LOCATION` 선언이 없고(Android 10 이상은 이 권한 없이 고른 사진의 위치를 지움), iOS `Info.plist`에는 사진 보관함 접근 사유 문구가 없습니다. 이번에 고치지 않았습니다.
+
+### 8.2 여행 도시 좌표 비용
+
+"여행 생성 때 한 번"이 아니라 "그 도시의 첫 사진 검색 때 한 번"으로 구현했습니다(`backend/.../services/trip_area.py`). 비용은 같고, 여행 생성 경로에 외부 호출이 끼지 않으며, 여행 도시를 고쳐도 따로 갱신할 필요가 없습니다. 도시별 결과는 Backend 프로세스가 사는 동안 기억합니다.
+
+Backend가 좌표를 찾는 것은 `IMAGE_SEARCH_URL`(원격 Modal)이 설정됐을 때뿐입니다. 원격 컨테이너는 요청 사이에 기억을 유지하지 못해 사진마다 다시 찾기 때문입니다. in-process 구성은 예전처럼 인식 모듈이 직접 찾습니다.
+
+시나리오 재생(`replay_scenarios.py --trip-coordinates`가 Backend 역할을 흉내 냄):
+
+| 구성 | 첫 후보가 정답 | 정답이 후보 안 | 인식 모듈의 Places 호출 |
+|---|---|---|---|
+| 2차 | 10 / 12 | 12 / 12 | 30 |
+| 3차, 인식 모듈이 직접 조회 (in-process) | 10 / 12 | 12 / 12 | 30 |
+| 3차, Backend가 좌표 전달 (원격) | 10 / 12 | 12 / 12 | 24 |
+
+결과는 같고 호출만 줄었습니다. 대신 Backend가 도시마다 한 번 조회합니다(이 시나리오 묶음에서는 3개 도시).
+
+### 8.3 실 API 측정 방법 (키가 생기면)
+
+```bash
+# manifest 형식은 스크립트 머리말 참고: 사진 경로, 정답 좌표, (선택) 여행지·촬영 좌표 힌트
+python -m ai.image_search.scripts.evaluate_photos --manifest 사진폴더/manifest.json --out after.json
+
+# 변경 전 코드로 같은 사진을 돌려 비교
+mkdir -p /tmp/before && git archive fab6abd ai | tar -x -C /tmp/before
+PYTHONPATH=/tmp/before python ai/image_search/scripts/evaluate_photos.py --manifest 사진폴더/manifest.json --out before.json
+```
+
+사진마다 첫 후보의 오차(km), 정답 순위, Places 호출 수와 함께 Gemini가 읽은 `visible_text` 순서도 남기므로, 프롬프트에 추가한 "이름일 가능성이 높은 순서" 지시가 실제로 먹히는지 볼 수 있습니다. 가짜 provider로 지표 계산만 검증했고(테스트 4건), 실제 실행은 하지 못했습니다.
+
+### 8.4 테스트와 정적 검사
+
+| 검사 | 2차 | 3차 |
+|---|---|---|
+| `ai/image_search/tests` (Python 3.11 · 3.13 · 3.14 각각) | 201 passed | 208 passed |
+| Backend `pytest` | 124 passed, 6 failed | 136 passed, 6 failed (같은 6건) |
+| Backend `ruff check` · `format` · `basedpyright` | 14 · 5 files · 29 | 14 · 5 files · 29 |
+| Frontend `flutter analyze` | No issues found | No issues found |
+| Frontend `flutter test` | 147 passed | 150 passed |
+| 응답 계약 Schema | 변경 없음 | 변경 없음 (요청에만 선택 필드 2개 추가) |
+
+요청 필드는 선택값이라 Backend와 Modal의 배포 순서가 어긋나도 깨지지 않습니다. 옛 인식 모듈은 모르는 요청 필드를 무시하고, 새 인식 모듈은 필드가 없으면 직접 조회로 돌아갑니다.
+
+### 8.5 Codex 3차 리뷰
+
+P0·P1 없음, P2 4건. 모두 반영했습니다.
+
+| 지적 | 처리 |
+|---|---|
+| 웹 원본이 20MB를 넘으면 Backend가 줄이기 전에 거부함 (전에는 브라우저 압축으로 통과하던 사진 포함) | 한도는 유지하고, 올리기 전에 화면에서 이유를 알려 주도록 함. 20MB 초과 원본은 여전히 받지 못합니다 |
+| 같은 도시의 첫 요청이 동시에 오면 유료 조회가 중복됨 | 조회를 잠금으로 한 줄로 세움. 동시 요청 테스트 추가 |
+| 개발 PC의 `.env`에 원격 URL과 실제 Maps 키가 있으면 테스트가 실제 Places를 부를 수 있음 | `create_app`에 인식기나 장소 검색 provider를 주입하면 여행 도시 조회도 주입된 provider로만 하도록 함. 그 상황을 재현하는 테스트 추가(고치기 전에는 실패) |
+| 사진 축소가 줄이기 전에 원본 전체를 메모리에 풂 | 순서를 바꿔 먼저 줄임(JPEG는 디코더가 줄여서 읽음). JPEG가 아닌 형식은 2,400만 화소를 넘으면 줄이지 않고 원본을 보냄 |
+
+### 8.6 여전히 남은 것
+
+- 실사진·실 API 정확도 측정과 그에 따른 튜닝 (키 필요)
+- 촬영 좌표가 없는 사진의 같은 도시 안 지점 구분
+- 모바일 앱에서 촬영 좌표가 실제로 도착하는지 기기 확인 (8.1절의 권한 선언)
+- in-process 구성에서는 여행 도시 좌표를 요청마다 다시 찾음
+- 20MB를 넘는 원본 사진은 받지 못함

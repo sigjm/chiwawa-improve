@@ -23,6 +23,15 @@ Cloud Vision, Gemini API 키가 필요합니다. 방문 동선 최적화는 배�
 않습니다. 빈 시간 추천은 해당 최적화 응답에 포함된 실제 추천 그룹을 재사용합니다.
 AI 일정 초안과 현재 위치 기반 주변 추천은 시연용 휴리스틱입니다.
 
+사진 업로드 검색에서 Backend는 인식 서비스를 부르기 전에 다음을 합니다.
+
+- 원본의 EXIF에서 촬영 좌표를 읽어 위치 힌트로 넘깁니다. 방향 태그(N/S, E/W)가 없는 좌표는 버립니다.
+- 촬영 좌표가 없고 `IMAGE_SEARCH_URL`(원격 Modal)이 설정돼 있으면, 여행 도시의 좌표를 Google Places에서
+  찾아 함께 넘깁니다. 같은 도시는 프로세스가 사는 동안 한 번만 조회합니다(`services/trip_area.py`).
+- 4MB를 넘는 사진은 긴 변 2048px JPEG로 줄여서 보냅니다(촬영 좌표는 줄이기 전에 읽음).
+
+검색 응답의 각 후보에는 근거(`reason`)와 카테고리 코드(`category`, 예: `CAFE`)가 들어 있습니다.
+
 일반 장소 검색은 Backend가 Google Places Text Search(New)를 호출하므로
 `GOOGLE_MAPS_API_KEY`가 필요합니다. 표시 언어는 한국어(`ko`)로 유지하되 지역은
 제한하지 않으며 Google Place ID, 표시명, 주소, 좌표를 반환합니다. 경로 최적화
