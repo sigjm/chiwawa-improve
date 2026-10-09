@@ -161,7 +161,7 @@ flowchart TB
 
 ## 🧭 증거 기반 후보
 
-후보를 고르는 규칙은 사진 촬영 위치 추정 스킬 [Oldcircle/geo-sleuth](https://github.com/Oldcircle/geo-sleuth)(MIT, © 2026 Oldcircle)의 원칙을 옮긴 것입니다. geo-sleuth 자체는 에이전트가 수십 분 동안 스크립트를 돌리는 스킬이라 요청 경로(Modal 120초)에 넣을 수 없으므로, **코드가 아니라 원칙**만 가져와 Places 호출 몇 번으로 구현했습니다.
+후보를 고르는 규칙은 사진 촬영 위치 추정 스킬 [Oldcircle/geo-sleuth](https://github.com/Oldcircle/geo-sleuth)(MIT, © 2026 Oldcircle)의 원칙을 옮긴 것입니다. geo-sleuth 자체는 에이전트가 사진 한 장에 몇 분에서 수십 분 동안 스크립트를 돌리는 스킬이라(표본 8장 실측 2분 ~ 9분 21초, [검증 기록](docs/evidence-ranking-before-after.md) 12절) 요청 경로(Modal 120초)에 넣을 수 없으므로, **코드가 아니라 원칙**만 가져와 Places 호출 몇 번으로 구현했습니다.
 
 | geo-sleuth 원칙 | 이 모듈의 구현 |
 |---|---|
@@ -196,7 +196,7 @@ LLM 추정           place_name_guess            촬영 좌표(2km) → 없으�
 
 ### 가져오지 않은 것
 
-역이미지 검색, 위성 타일 CLIP 스캔, 스트리트뷰 정합(DINOv2+SIFT), 고도 스카이라인 피팅, 카메라 자세 역산은 Chrome·torch·수십 분의 계산이 필요해 대상에서 제외했습니다. `data/`의 조회 테이블(CC BY-SA 4.0)도 중국권 중심이라 가져오지 않았습니다.
+역이미지 검색, 위성 타일 CLIP 스캔, 스트리트뷰 정합(DINOv2+SIFT), 고도 스카이라인 피팅, 카메라 자세 역산은 Chrome·torch와 분 단위의 실행 시간이 필요하고 사진을 외부 검색 서비스에 올려야 해 대상에서 제외했습니다. `data/`의 조회 테이블(CC BY-SA 4.0)도 중국권 중심이라 가져오지 않았습니다.
 
 > **관련 문서**
 >

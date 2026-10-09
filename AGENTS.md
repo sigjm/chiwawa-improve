@@ -83,7 +83,8 @@ cd frontend && flutter analyze && flutter test
 ## 외부 참조: geo-sleuth
 
 [Oldcircle/geo-sleuth](https://github.com/Oldcircle/geo-sleuth)(MIT)는 사진 촬영 위치를 찾는 **에이전트 스킬**
-(SKILL.md + 독립 스크립트)이지 import 할 수 있는 라이브러리가 아니다. 한 번 실행에 수십 분이 걸리고
-Chrome·torch·중국권 데이터 소스에 의존하므로 요청 경로(Modal 120초)에 그대로 넣지 않는다.
+(SKILL.md + 독립 스크립트)이지 import 할 수 있는 라이브러리가 아니다. 한 번 실행에 분 단위가 걸리고
+(표본 8장 실측 2~9분, 저자가 공개한 어려운 사례는 32~72분) Chrome·torch에 의존하며 사진을 외부 역이미지
+검색(Baidu·Yandex)에 올리므로 요청 경로(Modal 120초)에 그대로 넣지 않는다.
 `ai/image_search`에는 그 **원칙과 가벼운 연산자만** 옮겨 쓴다. 옮긴 내용과 출처는
 [`ai/image_search/README.md`](ai/image_search/README.md)에 적는다.
