@@ -48,6 +48,9 @@ class TestEvaluate:
         assert row["top_candidate"] == "센소지"
         assert row["top_confidence"] == 0.9
         assert row["top_reason"]
+        # 나라 밖 오답과 카테고리 판정을 사진별로 볼 수 있어야 한다
+        assert row["top_country"] == "Japan"
+        assert row["category"] == "CAFE"
         assert row["top_error_km"] == 0
         assert row["top_is_truth"] is True
         assert row["truth_rank"] == 1

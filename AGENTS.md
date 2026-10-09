@@ -39,7 +39,8 @@ cd frontend && flutter analyze && flutter test
 ## 반드시 지킬 불변식
 
 1. **사진 추정과 장소 사실의 분리.** AI(Vision·Gemini·EXIF)가 낸 좌표나 이름은 가설이다.
-   사용자에게 나가는 좌표·Place ID·도시·국가는 항상 Google Places 응답값이어야 한다.
+   사용자에게 나가는 좌표·Place ID는 항상 Google Places 응답값이어야 한다. 도시·국가도 Places 값을 쓰고,
+   Places 가 비워 보냈을 때만 여행 정보로 채운다(Places 값이 있는데 덮어쓰지 않는다).
 2. **`ai/image_search`는 두 런타임에서 돈다.** Python 3.11 문법으로 쓰고(3.12+ 전용 문법 금지),
    Modal 이미지(`ai/image_search/modal_app.py`의 `pip_install`)에 없는 패키지를 import 하지 않는다.
    새 의존성이 필요하면 `requirements.txt`, `modal_app.py`, `backend/pyproject.toml` 세 곳을 같이 고친다.
@@ -64,7 +65,7 @@ cd frontend && flutter analyze && flutter test
 
 ## Git
 
-- 흐름: `develop` 에서 `feat/*`·`fix/*`·`refactor/*`·`docs/*` 브랜치 → `develop` 대상 PR → `main` 통합 PR.
+- 흐름: `feat/*`·`fix/*`·`refactor/*`·`docs/*` 브랜치 → `main` 대상 PR (운영 브랜치는 `main` 하나).
 - 커밋 형식: `<type>: <한국어 요약>` (`feat` `fix` `refactor` `docs` `test` `chore`).
 - **사용자가 요청하기 전에는 커밋·푸시·PR 생성을 하지 않는다.** 남의 미추적(untracked) 작업 파일은 건드리지 않는다.
 
