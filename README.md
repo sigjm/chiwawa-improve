@@ -23,6 +23,10 @@
   <strong>Flutter · FastAPI · Modal · Google Cloud Vision · Gemini · Google Places · Google Routes</strong>
 </p>
 
+> **이 저장소는 원래 저장소 [hekim-cse/chiwawa](https://github.com/hekim-cse/chiwawa)에서 사진 장소 검색을 개선한 버전입니다.**
+> 촬영 좌표가 있는 실사진 99장에서 첫 후보 정답률이 45.5%에서 82.8%로, 그중 체인점 39장은 15.4%에서 92.3%로 올랐습니다.
+> 바뀐 내용, 측정 방법, 남은 한계는 [개선 기록](#improvement-log)에 있습니다.
+
 ---
 
 ## 📑 목차
@@ -108,6 +112,25 @@ Google Places
 → Place ID·좌표·주소 확정
 ```
 
+### 같은 이름의 장소는 위치 근거로 가립니다
+
+장소 이름을 맞혀도 같은 이름의 장소가 여럿이면(체인점, 동명 사찰) 어느 곳인지는
+따로 정해야 합니다. 위치를 주지 않고 검색하면 Places는 호출한 서버 주변의 장소를
+돌려줍니다. 치와와는 이름 하나로 결과 5건을 받아, 가진 위치 근거 중 가장 강한 것으로
+1순위를 정하고 나머지는 동명 후보로 함께 냅니다.
+
+```text
+랜드마크 감지 좌표 (반경 2km)
+→ 사진의 촬영 좌표, EXIF GPS (반경 2km, 200m 안의 결과가 최우선)
+→ 여행 도시 좌표 (반경 20km)
+→ 좌표가 없으면 여행지를 검색어에 붙여 검색
+```
+
+이름을 읽지 못한 사진은 간판 글자로 검색하고, 그래도 없으면 촬영 지점 주변의 장소를
+가까운 순으로 제시합니다. 촬영 좌표 없이 고른 체인점은 지점을 가릴 근거가 없으므로
+확신도를 낮추고 "같은 이름의 다른 지점일 수 있음"으로 표시합니다. 실사진으로 잰 결과는
+[개선 기록](#improvement-log)에 있습니다.
+
 ### 제한 범위에서는 정확해를 계산합니다
 
 Route Planner는 임의 휴리스틱으로 결과를 바꾸지 않고, 기본 POI 12개 범위에서
@@ -163,10 +186,11 @@ Flutter App / Web
 ↔ SQLite
 
 FastAPI
+→ 업로드한 사진의 촬영 좌표(EXIF GPS)와 여행 도시 좌표를 함께 전달
 → Modal Image Search
    → Cloud Vision
    → Gemini
-   → Google Places
+   → Google Places (위치 근거로 후보 순위화)
 
 FastAPI
 → Modal Route Planner
@@ -196,7 +220,7 @@ Route Planner 저장소에는 장소명으로 좌표를 만드는 개발 스크�
 |---|---|
 | Frontend | Flutter App·Web, Riverpod 상태 관리, Dio API Repository |
 | Backend | FastAPI, Pydantic 계약, Google OAuth·JWT, SQLite 상태 저장 |
-| Image Search | Cloud Vision·Gemini 분석, Places 사실 확정, Modal 배포 |
+| Image Search | Cloud Vision·Gemini 분석, Places 사실 확정, 위치 근거 기반 후보 순위화, Modal 배포 |
 | Route Planner | 정확 일자 배정, 방문 순서, 이동수단별 Route Option·Timeline |
 | Free Time Recommender | 경로 주변 검색, 후보 우회 지표, 도착시간 기반 삽입 검증 |
 | Memorial | 사진 파일·메타데이터 저장, 날짜별 기록, Paw Map·Timeline UI |
@@ -214,7 +238,8 @@ main 반영
 
 현재 저장소에서 자동 배포가 확인되는 범위는 Modal AI 서비스입니다. FastAPI와
 Flutter는 Docker·로컬 실행 구성을 제공하며, 운영 호스팅 주소는 저장소에 포함하지
-않습니다.
+않습니다. 위 흐름은 원래 저장소의 것입니다. 이 저장소(개선 버전)에는 Modal 토큰이 없어
+배포가 일어나지 않으며, 개선분은 Modal에 배포하지 않았습니다.
 
 <br>
 
@@ -230,7 +255,7 @@ Pull Request에서는 변경 영역의 회귀 테스트를 실행하고, `main` 
 |---|---|
 | Frontend | 정적 분석, 단위·Widget 테스트, Web Build |
 | Backend | Format, Lint, Type Check, API·Service 테스트, Wheel Build |
-| Image Search | 사진 입력 검증, Provider 응답 계약, 장소 확정 흐름 |
+| Image Search | 사진 입력 검증, Provider 응답 계약, 장소 확정 흐름, 위치 근거 순위화, 실사진 측정 스크립트 |
 | Route Planner | 일정 완전성, 날짜 배정, 방문 순서, 결정성, E2E Benchmark |
 | Free Time Recommender | 시간 제약, 후보 삽입, 우회 이동시간, 카테고리별 추천 |
 | CI/CD | Pull Request 회귀 테스트, `main` 반영 후 Modal 자동 배포 |
@@ -322,6 +347,7 @@ chiwawa/
 | Backend | [`backend/README.md`](backend/README.md) |
 | Backend API | [`backend/docs/api/reference.md`](backend/docs/api/reference.md) |
 | Image Search | [`ai/image_search/README.md`](ai/image_search/README.md) |
+| Image Search 검증 기록 | [`ai/image_search/docs/evidence-ranking-before-after.md`](ai/image_search/docs/evidence-ranking-before-after.md) |
 | Route Planner | [`ai/route_planner/README.md`](ai/route_planner/README.md) |
 | Free Time Recommender | [`ai/free_time_recommender/README.md`](ai/free_time_recommender/README.md) |
 
@@ -381,7 +407,10 @@ IMAGE_SEARCH_URL=
 ROUTE_PLANNER_URL=
 FREE_TIME_RECOMMENDER_URL=
 APP_DB_PATH=data/chiwawa.db
+IMAGE_SEARCH_MAX_ALTERNATIVES=2
 ```
+
+`IMAGE_SEARCH_MAX_ALTERNATIVES`는 식별한 장소 뒤에 싣는 동명 후보 수입니다(기본 2, 0이면 싣지 않음).
 
 실제 Secret은 Git에 포함하지 않으며, Modal 배포에서는 GitHub Actions Secret과
 Modal Secret을 통해 주입합니다.
@@ -458,7 +487,7 @@ feat/* · fix/* · refactor/* · docs/*
 
 ## 📈 개선 기록: 사진 장소 검색
 
-> 이 저장소는 원래 저장소 [hekim-cse/chiwawa](https://github.com/hekim-cse/chiwawa)의 `main`(`6c78775`)에서 갈라져 **사진으로 장소 탐색**을 고친 기록입니다. 이 절, 목차의 한 줄, 위의 사진 탐색 항목, 운영 고려사항의 마지막 한 줄 외에 README는 원래 저장소와 같습니다.
+> 이 저장소는 원래 저장소 [hekim-cse/chiwawa](https://github.com/hekim-cse/chiwawa)의 `main`(`6c78775`)에서 갈라져 **사진으로 장소 탐색**을 고친 기록입니다. 개선분은 이 저장소의 `main`에 병합되어 있고, Modal에는 배포하지 않았습니다. README에서 원래 저장소와 다른 곳은 이 절, 맨 위 안내와 목차의 한 줄, 사진 탐색 항목, "같은 이름의 장소는 위치 근거로 가립니다" 절, 연동 경계·구현 범위·테스트 범위의 Image Search 줄, 문서·환경변수 목록의 한 줄씩, 운영 고려사항의 마지막 한 줄입니다.
 
 사진 촬영 위치를 추정하는 오픈소스 에이전트 스킬 [Oldcircle/geo-sleuth](https://github.com/Oldcircle/geo-sleuth)(MIT, © 2026 Oldcircle)의 **원칙만** 옮겼습니다. geo-sleuth는 에이전트가 스크립트를 골라 돌리는 절차라서, 직접 돌려 보니 사진 한 장에 2분 ~ 9분 21초가 걸렸고([아래](#geo-sleuth-run), 8장) 사용자 사진을 외부 역이미지 검색에 올립니다. 그래서 요청 경로(Modal 120초)에 넣지 않고, 코드는 가져오지 않은 채 Google Places 호출 몇 번으로 구현했습니다. 응답 계약(`ImageSearchResult`)은 바꾸지 않았습니다.
 
@@ -478,27 +507,29 @@ feat/* · fix/* · refactor/* · docs/*
 
 촬영 좌표가 붙은 공개 사진(Wikimedia Commons) 106장을 실제 Cloud Vision·Gemini·Places로 돌렸습니다. 일본 63장과 일본 밖 15개국 43장입니다. 첫 후보가 정답에서 150m 안이면 정답으로 셉니다. 정답 지점이 Places에 없는 6장(폐업 등)은 뺐습니다.
 
-| 지표 | 원래 코드 | 개선 후 |
-|---|---|---|
-| **촬영 좌표가 있는 사진 99장** — 첫 후보가 정답 | 45 | **82** |
-| ├ 일본 59장 | 29 | 53 |
-| └ 일본 밖 40장 | 16 | 29 |
-| 정답이 후보 목록 안에 있음 | 48 | 88 |
-| 후보를 하나도 못 냄 | 15 | 0 |
-| 첫 후보가 300km 넘게 틀림 | 21 | 0 |
-| **촬영 좌표가 없는 사진 100장**(여행 도시는 있음) — 첫 후보가 정답 | 46 | 54 |
-| 정답이 후보 목록 안에 있음 | 49 | 62 |
-| 후보를 하나도 못 냄 | 15 | 5 |
-| 첫 후보가 300km 넘게 틀림 | 21 | 1 |
+| 지표 | 원래 코드 | 개선 후 | 변화 |
+|---|---|---|---|
+| **촬영 좌표가 있는 사진 99장** — 첫 후보가 정답 | 45장 (45.5%) | **82장 (82.8%)** | **+37.4%p** |
+| ├ 일본 59장 | 29장 (49.2%) | 53장 (89.8%) | +40.7%p |
+| └ 일본 밖 40장 | 16장 (40.0%) | 29장 (72.5%) | +32.5%p |
+| 정답이 후보 목록 안에 있음 | 48장 (48.5%) | 88장 (88.9%) | +40.4%p |
+| 후보를 하나도 못 냄 | 15장 (15.2%) | 0장 | −15.2%p |
+| 첫 후보가 300km 넘게 틀림 | 21장 (21.2%) | 0장 | −21.2%p |
+| **촬영 좌표가 없는 사진 100장**(여행 도시는 있음) — 첫 후보가 정답 | 46장 (46%) | 54장 (54%) | +8%p |
+| 정답이 후보 목록 안에 있음 | 49장 (49%) | 62장 (62%) | +13%p |
+| 후보를 하나도 못 냄 | 15장 (15%) | 5장 (5%) | −10%p |
+| 첫 후보가 300km 넘게 틀림 | 21장 (21%) | 1장 (1%) | −20%p |
+
+%p는 정답률끼리의 차이입니다. 촬영 좌표가 있는 99장에서 정답은 45장에서 82장으로 82% 늘었고, 오답은 54장에서 17장으로 69% 줄었습니다.
 
 유형별 첫 후보 정답 수(촬영 좌표가 있는 99장):
 
-| 유형 | 사진 | 원래 코드 | 개선 후 |
-|---|---|---|---|
-| 랜드마크 | 26 | 20 | 21 |
-| 체인점 | 39 | 6 | 36 |
-| 거리·시장 | 22 | 12 | 17 |
-| 개별 가게·건물 | 12 | 7 | 8 |
+| 유형 | 사진 | 원래 코드 | 개선 후 | 변화 |
+|---|---|---|---|---|
+| 랜드마크 | 26 | 20장 (76.9%) | 21장 (80.8%) | +3.8%p |
+| 체인점 | 39 | 6장 (15.4%) | 36장 (92.3%) | +76.9%p |
+| 거리·시장 | 22 | 12장 (54.5%) | 17장 (77.3%) | +22.7%p |
+| 개별 가게·건물 | 12 | 7장 (58.3%) | 8장 (66.7%) | +8.3%p |
 
 - **차이는 거의 전부 체인점에서, 촬영 좌표가 있을 때 납니다.** 좌표가 없으면 같은 도시의 다른 지점이 답으로 나오고, 그런 후보에는 "촬영 위치가 없어 같은 이름의 다른 지점일 수 있음"이 붙습니다.
 - 랜드마크는 원래도 잘 맞혔고 거의 그대로입니다.
@@ -555,6 +586,7 @@ geo-sleuth 자체를 시간 제한 없이 돌려 시간과 정확도를 쟀습�
 
 ### 남은 것
 
+- 개선분을 Modal에 배포하지 않았습니다. 수치는 모두 로컬에서 실제 API를 호출해 잰 것입니다.
 - 사용자가 직접 찍은 사진으로는 재지 못했습니다.
 - 모바일 앱에서 촬영 좌표가 Backend까지 도착하는지는 기기에서 확인해야 합니다(웹은 도착합니다).
 - Cloud Vision이 다른 랜드마크를 기준 점수 이상으로 답하면 Gemini의 맞는 추정보다 우선합니다(랜드마크가 채택된 12장 중 3장).
