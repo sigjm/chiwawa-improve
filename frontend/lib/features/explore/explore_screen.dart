@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
@@ -155,7 +156,10 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen> {
     final source = await showPhotoSourceSheet(context);
     if (source == null) return;
 
-    final picked = await _picker.pickImage(source: source, imageQuality: 80);
+    final picked = await _picker.pickImage(
+      source: source,
+      imageQuality: photoPickImageQuality(isWeb: kIsWeb),
+    );
     if (!mounted || picked == null) return;
 
     final upload = PhotoUpload(

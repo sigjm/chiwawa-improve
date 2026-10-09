@@ -11,6 +11,7 @@ from chiwawa_backend.dependencies import (
     get_route_planner,
     get_state,
     get_time_zone_provider,
+    get_trip_area_resolver,
 )
 from chiwawa_backend.errors import (
     ConfigurationError,
@@ -37,6 +38,7 @@ from chiwawa_backend.services.place_search import PlaceSearchProvider
 from chiwawa_backend.services.route_optimization import RoutePlanner
 from chiwawa_backend.services.state_store import SQLiteStateStore
 from chiwawa_backend.services.time_zone import TimeZoneProvider
+from chiwawa_backend.services.trip_area import TripAreaResolver
 from chiwawa_backend.state import AppState
 
 
@@ -85,6 +87,12 @@ def create_app(
     if time_zone_provider is not None:
         app.dependency_overrides[get_time_zone_provider] = (
             _time_zone_provider_dependency(time_zone_provider)
+        )
+    if photo_place_recognizer is not None or place_search_provider is not None:
+        # 주입으로 조립한 앱(테스트 등)은 여행 도시 좌표도 주입된 provider 로만 찾는다.
+        # 설정에 원격 URL 과 실제 Maps 키가 있어도 실제 Places 를 부르지 않게 한다.
+        app.dependency_overrides[get_trip_area_resolver] = _trip_area_dependency(
+            place_search_provider,
         )
     _register_exception_handlers(app)
     for router in (
@@ -135,6 +143,18 @@ def _place_search_provider_dependency(
 ) -> Callable[[], PlaceSearchProvider]:
     def dependency() -> PlaceSearchProvider:
         return provider
+
+    return dependency
+
+
+def _trip_area_dependency(
+    provider: PlaceSearchProvider | None,
+) -> Callable[[], TripAreaResolver]:
+    # provider 가 없으면 조회하지 않는 조회기를 만든다.
+    resolver = TripAreaResolver(None if provider is None else lambda: provider)
+
+    def dependency() -> TripAreaResolver:
+        return resolver
 
     return dependency
 

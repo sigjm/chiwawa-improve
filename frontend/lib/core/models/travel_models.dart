@@ -469,6 +469,7 @@ class PhotoSearchResult {
     this.latitude,
     this.longitude,
     this.confidence,
+    this.reason = '',
     this.imagePath,
   });
 
@@ -482,6 +483,9 @@ class PhotoSearchResult {
   final double? latitude;
   final double? longitude;
   final double? confidence;
+
+  /// 이 후보를 제시한 근거 (예: "같은 이름으로 검색된 다른 장소"). 없으면 빈 문자열.
+  final String reason;
   final String? imagePath;
 
   PhotoSearchResult copyWith({
@@ -495,6 +499,7 @@ class PhotoSearchResult {
     double? latitude,
     double? longitude,
     double? confidence,
+    String? reason,
     String? imagePath,
   }) {
     return PhotoSearchResult(
@@ -508,6 +513,7 @@ class PhotoSearchResult {
       latitude: latitude ?? this.latitude,
       longitude: longitude ?? this.longitude,
       confidence: confidence ?? this.confidence,
+      reason: reason ?? this.reason,
       imagePath: imagePath ?? this.imagePath,
     );
   }
@@ -524,6 +530,7 @@ class PhotoSearchResult {
       latitude: (json['latitude'] as num?)?.toDouble(),
       longitude: (json['longitude'] as num?)?.toDouble(),
       confidence: (json['confidence'] as num?)?.toDouble(),
+      reason: json['reason'] as String? ?? '',
       imagePath: json['image_url'] as String? ?? json['image_path'] as String?,
     );
   }
@@ -540,6 +547,7 @@ class PhotoSearchResult {
       'latitude': latitude,
       'longitude': longitude,
       'confidence': confidence,
+      'reason': reason,
       'image_path': imagePath,
     };
   }

@@ -98,11 +98,12 @@ flowchart TB
     MIME["detect_image_mime_type"]
     DETECT["_safe_detect → LandmarkDetection | None"]
     IDENT["_safe_identify → VisionIdentification | None"]
-    SEED["_pick_seed"]
-    FAIL1["_failed → FAILED"]
-    RESOLVE["_safe_resolve"]
-    FB["_llm_fallback_seed → _safe_resolve"]
+    SEED["_seeds<br/>랜드마크 → LLM 추정 → 읽은 글자<br/>(_soft_prior 로 위치 prior 부여)"]
+    FAIL1["_around_hint<br/>위치 힌트 주변 후보(PARTIAL) 또는 FAILED"]
+    RESOLVE["_safe_search (시드마다)"]
+    RANK["_prefer_near (좌표 prior 있음)<br/>_prefer_trip_country (없음)"]
     CAND["_to_candidate (identified)"]
+    ALT["_build_alternatives (동명 후보)"]
     NEARBY["_build_nearby"]
     STATUS["status 판정"]
     RESULT["ImageSearchResult"]
@@ -112,13 +113,11 @@ flowchart TB
     MIME --> IDENT
     DETECT --> SEED
     IDENT --> SEED
-    SEED -->|None| FAIL1
+    SEED -->|시드 없음| FAIL1
     SEED -->|seed| RESOLVE
-    RESOLVE -->|None| FB
-    FB -->|None| FAIL1
-    RESOLVE --> CAND
-    FB --> CAND
-    CAND --> NEARBY --> STATUS --> RESULT
+    RESOLVE -->|결과 없음 · 다음 시드| SEED
+    RESOLVE -->|결과 있음| RANK --> CAND
+    CAND --> ALT --> NEARBY --> STATUS --> RESULT
 ```
 
 `search()`의 실제 단계 순서는 다음과 같습니다.
@@ -129,13 +128,23 @@ flowchart TB
 3. landmark = self._safe_detect(...)           랜드마크 감지(매 요청)
 4. llm = self._safe_identify(...)              비전 LLM(매 요청)
 5. signals = RecognitionSignals(landmark, llm) 원신호 보존
-6. seed = self._pick_seed(landmark, llm)       시드 선택 → None 이면 _failed
-7. category = llm.category if llm else None     카테고리(근처 필터)
-8. resolved = self._safe_resolve(seed_name)    좌표·place_id 확정
-     └ None 이면 _llm_fallback_seed 로 재시도, 또 None 이면 _failed
-9. identified = self._to_candidate(...)         식별 후보
-10. nearby = self._build_nearby(...)            근처 추천(wanted 개)
-11. status 판정 → ImageSearchResult 반환
+6. category = llm.category if llm else None     카테고리(근처 필터)
+7. hint = self._location_hint(request)         위치 힌트(위도·경도가 쌍일 때만)
+8. for seed in self._seeds(...):               랜드마크 → LLM 추정 → 읽은 글자 순
+     matches = self._safe_search(seed)         이름 검색(5건, seed.near 로 편향)
+     └ 결과가 있으면 그 시드에서 멈춤. 끝까지 없으면 _around_hint
+     └ 앵커 없는 시드는 _soft_prior 가 prior 를 정함: 촬영 좌표(2km) → 여행 도시 좌표(20km, 요청에 실려 오거나 Places 1회 조회) → 없음
+     └ prior 가 없고 여행지("도시 국가" 또는 국가)가 있으면 "이름 여행지"를 먼저 검색하고, 결과가 없으면 이름만 검색
+     └ 여행 도시 조회, 여행지를 붙인 검색, 글자 시드는 시작 후 60초(_OPTIONAL_BUDGET_S) 안에만
+9. seed.near 가 있으면 _with_closest → _prefer_near
+                                               촬영 좌표인데 바로 앞(200m)에 결과가 없으면 가까운 순으로 한 번 더 검색,
+                                               그다음 prior 반경 안의 결과를 앞으로 (촬영 좌표면 바로 앞 200m 가 그보다 먼저)
+   없으면 _prefer_trip_country                 여행 국가 안의 결과를 앞으로
+10. identified = self._to_candidate(matches[0]) 식별 후보. 촬영 좌표가 없고 _has_branch_elsewhere 면
+                                               confidence 상한(0.5)과 "다른 지점일 수 있음" 문구 적용
+11. alternatives = self._build_alternatives()   동명 후보(LLM·글자 시드, 최대 2)
+12. nearby = self._build_nearby(...)            근처 추천(남은 자리)
+13. status 판정 → ImageSearchResult 반환
 ```
 
 세 단계가 이 계층의 정체성입니다. (3)(4)는 두 식별기를 **모두** 돌리는 병행 실행, (6)은 어느 결과를 채택할지 고르는 캐스케이드, (8)은 식별기 좌표를 버리고 Places로 재확정하는 불변조건입니다.
@@ -182,20 +191,24 @@ Google Places의 두 동작을 하나의 Protocol로 묶습니다.
 
 ```text
 PlacesResolver (@runtime_checkable Protocol)
-├── resolve_place(place_name: str,
-│                 language_code: str = "ko",
-│                 region_code: str = "JP") -> ResolvedPlace
+├── search_text(query: str,
+│               language_code: str = "ko",
+│               region_code: str | None = None,
+│               max_result_count: int = 1,
+│               location_bias: tuple[float, float] | None = None,
+│               bias_radius_m: float = 2000) -> list[ResolvedPlace]
 └── search_nearby(latitude: float,
                   longitude: float,
                   *, category: PlaceCategory | None = None,
                   radius_m: float,
                   max_result_count: int,
                   language_code: str = "ko",
-                  region_code: str = "JP") -> list[ResolvedPlace]
+                  region_code: str | None = None,
+                  rank_by_distance: bool = False) -> list[ResolvedPlace]
 ```
 
-- `resolve_place`는 장소 "이름"을 받아 실제 `ResolvedPlace`(좌표·place_id·주소)를 확정합니다.
-- `search_nearby`는 좌표를 중심으로 관련 장소 목록을 돌려줍니다. `radius_m`·`max_result_count`는 키워드 전용 인자이며, `PlaceRecognizer._safe_nearby`는 `language_code`·`region_code`를 넘기지 않고 기본값(`ko`·`JP`)에 맡깁니다.
+- `search_text`는 장소 "이름"을 받아 실제 `ResolvedPlace`(좌표·place_id·주소) 목록을 돌려줍니다. `location_bias`는 결과를 제한하지 않고 그 주변으로 편향만 합니다. 결과가 없으면 빈 리스트입니다.
+- `search_nearby`는 좌표를 중심으로 관련 장소 목록을 돌려줍니다. `radius_m`·`max_result_count`는 키워드 전용 인자이며, `rank_by_distance`는 위치 힌트 주변 탐색(`_around_hint`)에서만 켭니다. `PlaceRecognizer`는 `language_code`·`region_code`를 넘기지 않고 기본값(`ko`·지역 미지정)에 맡깁니다.
 
 ### 의존 방향
 
@@ -247,7 +260,18 @@ PlaceRecognizer(
 PlaceRecognizer._NEARBY_API_MAX = 20   Places searchNearby 결과 개수 상한
 ```
 
-`_build_nearby`가 `wanted + 1`을 요청할 때 이 값으로 상한을 걸어 `min(wanted + 1, 20)`만 조회합니다.
+`_build_nearby`가 `wanted + 이미 실은 후보 수`를 요청할 때 이 값으로 상한을 걸어 `min(wanted + len(taken), 20)`만 조회합니다.
+
+```text
+PlaceRecognizer._TEXT_SEARCH_RESULTS = 5   이름 하나로 받아 보는 Places 결과 수(동명 후보용)
+PlaceRecognizer._MAX_TEXT_QUERIES = 2      글자 폴백 검색 횟수 상한(Modal 120s 예산)
+```
+
+```text
+PlaceRecognizer._OPTIONAL_BUDGET_S = 60     선택적 Places 호출(여행지 좌표 조회·글자 폴백)을 시작해도 되는 경과 시간(초)
+```
+
+`PlaceRecognizerConfig`에는 `max_alternatives(기본 2, 환경변수 IMAGE_SEARCH_MAX_ALTERNATIVES)` · `prior_radius_m(2000)` · `trip_radius_m(20000)` · `hint_radius_m(200)` · `weak_evidence_confidence(0.5)`가 추가로 있습니다.
 
 > **관련 문서**
 >
@@ -273,14 +297,14 @@ landmark 존재 && landmark.score >= landmark_score_threshold(0.6)
   → (llm.place_name_guess, llm.confidence, CandidateSource.LLM, llm.reason)
 
 둘 다 없음
-  → None  → search() 는 _failed(signals) 반환 (FAILED)
+  → None  → _seeds 는 읽은 글자 시드(_text_seeds)만 내고, 그것도 없으면 _around_hint
 ```
 
 임계값 0.6은 랜드마크 감지를 신뢰할 최소 기준이고, 그보다 낮으면 오탐 가능성이 높다고 보아 LLM 추정으로 넘어갑니다.
 
 ### _llm_fallback_seed — 랜드마크 확정 실패 시 LLM 대체
 
-랜드마크를 시드로 골랐지만 그 이름이 Places에서 검색되지 않으면(`_safe_resolve`가 `None`), LLM 추정 이름으로 한 번 더 시도합니다.
+랜드마크를 시드로 골랐지만 그 이름이 Places에서 검색되지 않으면(`_safe_search`가 빈 리스트), LLM 추정 이름으로 한 번 더 시도합니다.
 
 ```text
 source is not CandidateSource.LANDMARK   → None (LLM 시드였으면 재시도 안 함)
@@ -290,7 +314,39 @@ llm.place_name_guess == 방금 실패한 이름   → None (같은 이름 재검
   → (llm.place_name_guess, llm.confidence, CandidateSource.LLM, llm.reason)
 ```
 
-대체 시드를 얻으면 그 이름으로 `_safe_resolve`를 한 번 더 호출하고, 그래도 `None`이면 `_failed`로 종료합니다. 랜드마크 감지의 오탐을 LLM이 보정하는 안전장치입니다.
+대체 시드를 얻으면 그 이름으로 `_safe_search`를 한 번 더 호출하고, 그래도 결과가 없으면 읽은 글자 시드(`_text_seeds`)로 넘어갑니다. 랜드마크 감지의 오탐을 LLM이 보정하는 안전장치입니다.
+
+### _soft_prior · _text_seeds · _prefer_near · _prefer_trip_country · _around_hint — 증거 기반 후보
+
+상위 문서 "증거 기반 후보" 절의 규칙을 구현하는 헬퍼입니다.
+
+```text
+_soft_prior          앵커 없는 시드의 위치 prior(_Prior: 중심 + 반경 + close_m). 촬영 좌표가 있으면 (좌표, 2km, 200m).
+                     없고 요청에 trip_latitude·trip_longitude 가 쌍으로 있으면 (그 좌표, 20km) — 조회 없음.
+                     그것도 없고 여행 도시가 있으면 "도시 국가"를 search_text 로 1건 찾아 (좌표, 20km).
+                     도시가 없거나 못 찾거나 시간 예산을 넘겼으면 None. 쓸 시드가 있을 때만 호출된다.
+                     None 이면 _seeds 가 이름 시드 앞에 "이름 여행지" 시드를 하나 더 낸다 (국가만 있는 여행:
+                     이름만 검색하면 Places 가 호출 서버의 IP 주변 동명 장소를 돌려준다).
+_text_seeds          visible_text 에서 한 글자·글자(letter) 없는 항목·추정 이름과 같은 항목을 빼고
+                     앞에서 2개까지 낸다. 위치 힌트가 있으면 글자만, 없으면 "글자 + 여행 도시 + 국가".
+                     (검색어·confidence·출처·사유) 목록을 돌려주고 prior 는 _seeds 가 붙인다.
+                     힌트도 여행지도 없으면 내지 않는다. confidence 는 min(llm.confidence, 0.5).
+_prefer_near         seed.near 가 있을 때 호출. prior 반경(seed.near.radius_m) 안에 있는 결과를 앞으로 옮기는
+                     안정 정렬(_distance_m, haversine). 반경 안 결과가 없으면 순서 그대로.
+                     촬영 좌표 prior 는 close_m(hint_radius_m, 200m) 안의 결과를 그보다도 앞에 둔다
+                     (실측: Places 가 촬영 지점 20m 앞의 지점보다 410m 떨어진 동명 지점을 먼저 줌).
+                     그 안에 같은 primary_type 의 결과가 여럿이면 그들끼리는 가까운 순(체인 지점),
+                     종류가 다르면 Places 순서 유지(골목 이름이 들어간 가게가 골목을 밀어내지 않게).
+_with_closest        촬영 좌표 prior(close_m > 0)인데 결과 중 close_m 안의 것이 없으면 같은 검색어를
+                     rank_by_distance=True 로 한 번 더 부르고, close_m 안의 결과만 앞에 붙인다.
+                     시간 예산을 넘겼거나 바로 앞에 없으면 처음 결과 그대로.
+_has_branch_elsewhere 식별 장소와 같은 primary_type 의 결과가 hint_radius_m(200m) 넘게 떨어져 있는가.
+                     랜드마크 시드나 primary_type 미상이면 False. 촬영 좌표가 없을 때만 쓰인다.
+_prefer_trip_country seed.near 가 None 일 때만 호출. Places 실제 country 가 요청 country 와 같은 결과를
+                     앞으로 옮기는 안정 정렬(일치가 없으면 순서 그대로).
+_around_hint         어떤 시드도 결과가 없을 때. 힌트가 있으면 반경 200m 를 거리순으로 조회해
+                     NEARBY 후보로 내고 identified=None · PARTIAL. 힌트가 없거나 결과가 없으면 _failed.
+```
 
 ### 카테고리 결정
 
@@ -302,15 +358,15 @@ category = llm.category if llm is not None else None
 
 ### _build_nearby — 근처 후보 조립
 
-식별 장소의 좌표를 중심으로 같은 성격의 장소를 추천 후보로 덧붙입니다. 검색 중심이 식별 장소 좌표라 자기 자신이 결과에 섞일 수 있어, 1개 더 요청한 뒤 `place_id`로 제외합니다.
+식별 장소의 좌표를 중심으로 같은 성격의 장소를 추천 후보로 덧붙입니다. 검색 중심이 식별 장소 좌표라 이미 실은 후보(`taken` = 식별 + 동명 후보)가 결과에 섞일 수 있어, 그만큼 더 요청한 뒤 `place_id`로 제외합니다.
 
 ```text
 wanted <= 0                        → [] (근처 요청 없음)
-fetch_count = min(wanted + 1, 20)  → _NEARBY_API_MAX 상한
-nearby = _safe_nearby(resolved, category, fetch_count)
-deduped = [p for p in nearby if p.place_id != resolved.place_id][:wanted]
+fetch_count = min(wanted + len(taken), 20)  → _NEARBY_API_MAX 상한
+nearby = _safe_nearby((resolved.latitude, resolved.longitude), category, fetch_count, nearby_radius_m)
+deduped = [p for p in nearby if p.place_id not in taken_ids][:wanted]
 각 deduped[index] → _to_candidate(
-    place, _decay(base_conf, index), "근처의 비슷한 장소",
+    place, _decay(base_conf, len(taken) - 1 + index), "근처의 비슷한 장소",
     CandidateSource.NEARBY, category, request)
 ```
 
@@ -358,11 +414,12 @@ PlaceCandidate(
 
 ```text
 SUCCESS  근처 후보를 얻음, 또는 애초에 근처를 요청하지 않음(nearby_wanted == 0)
-PARTIAL  식별은 됐으나 요청한 근처 후보를 하나도 얻지 못함
-FAILED   시드 없음 또는 Places 확정 실패 (_failed 경로)
+PARTIAL  식별은 됐으나 요청한 근처 후보를 하나도 얻지 못함,
+         또는 식별은 못 했지만 위치 힌트 주변 후보를 냄(_around_hint, identified=None)
+FAILED   어떤 시드도 Places 에서 확정되지 않았고 위치 힌트 주변 후보도 없음 (_failed 경로)
 ```
 
-코드상 판정은 `RecognitionStatus.SUCCESS if nearby_candidates or nearby_wanted == 0 else RecognitionStatus.PARTIAL`이며, `FAILED`는 `search()` 앞부분의 두 `_failed(signals)` 조기 반환에서만 나옵니다. `_failed`는 `identified=None`, `candidates=[]`로 두되 `signals`(원신호)는 보존합니다.
+코드상 판정은 `RecognitionStatus.SUCCESS if nearby_candidates or nearby_wanted == 0 else RecognitionStatus.PARTIAL`이며, `FAILED`는 `_around_hint` 안의 `_failed(signals)` 반환에서만 나옵니다. `_failed`는 `identified=None`, `candidates=[]`로 두되 `signals`(원신호)는 보존합니다.
 
 > **관련 문서**
 >
@@ -377,7 +434,7 @@ FAILED   시드 없음 또는 Places 확정 실패 (_failed 경로)
 
 ```text
 식별기 출력(장소 "이름")
-→ _safe_resolve → PlacesResolver.resolve_place
+→ _safe_search → PlacesResolver.search_text (위치 prior 는 검색 편향에만 사용)
 → Places 가 준 좌표 · place_id · 주소로 확정
    └ 식별기가 준 좌표는 폐기
 ```
@@ -545,7 +602,7 @@ _load 실패 → ImageLoadError(ValueError 계열) → search() 밖으로 전파
 ```text
 _safe_detect     except Exception → None      랜드마크 없이 진행
 _safe_identify   except Exception → None      LLM 없이 진행
-_safe_resolve    except Exception → None      좌표 확정 실패 → 폴백/실패
+_safe_search     except Exception → []         이 시드는 확정 실패 → 다음 시드
 _safe_nearby     except Exception → []         근처 없이 진행(PARTIAL 가능)
 ```
 
@@ -555,7 +612,7 @@ _safe_nearby     except Exception → []         근처 없이 진행(PARTIAL �
 랜드마크 감지 실패    → LLM 으로 시드 선택 시도
 비전 LLM 실패        → 랜드마크로 시드 선택 시도
 두 식별기 다 실패     → _pick_seed None → FAILED
-Places 확정 실패      → LLM 폴백 시드로 재시도, 그래도 실패면 FAILED
+Places 확정 실패      → 다음 시드(LLM 추정 → 읽은 글자)로 재시도, 끝까지 실패면 위치 힌트 주변 탐색 또는 FAILED
 근처 추천 실패/없음   → 식별만 반환(PARTIAL)
 ```
 
@@ -592,7 +649,7 @@ Places 확정 실패      → LLM 폴백 시드로 재시도, 그래도 실패�
 ### 근처 추천
 
 - `nearby_wanted = max(0, max_candidates - 1)` 계산
-- `wanted + 1` 조회 후 `place_id`로 식별 장소 자기 자신 제외
+- `wanted + len(taken)` 조회 후 `place_id`로 이미 실은 후보(식별·동명) 제외
 - `_NEARBY_API_MAX(20)` 상한
 - `wanted` 개수로 절단
 - `_decay` 순차 감소, 하한 0.1, 상한 base_conf 클램프, 2자리 반올림
@@ -633,11 +690,11 @@ Places 확정 실패      → LLM 폴백 시드로 재시도, 그래도 실패�
 
 ## ⚠️ 현재 한계
 
-- 위치 힌트(`latitude`·`longitude`·`city`·`country`)를 요청으로 받지만, `resolve_place`/`search_nearby`의 locationBias로는 아직 활용하지 않습니다. 힌트는 후보의 `city`·`country` 채움에만 쓰입니다.
+- 위치 힌트가 촬영 위치인지 현재 위치인지 구분하지 않고 같은 prior 로 씁니다. 여행 도시 좌표가 요청에 실려 오지 않으면 요청마다 Places 를 한 번 더 부릅니다. 도시 없이 국가만 있으면 국가를 검색어에 붙여 찾지만, 이것은 범위 제한이 아니라서 다른 나라의 동명 지점이 나올 수 있습니다(해외 실측 40장 중 4장). 국가 우선 정렬은 표기가 같을 때만 일치합니다(Places 는 "호주"를 "오스트레일리아"로 돌려줍니다).
 - 두 식별기를 병행으로 부른다고 하지만 실제 호출은 순차입니다(`_safe_detect` 다음 `_safe_identify`). 병렬 앙상블은 미적용이며, `RecognitionSignals`가 확장 대비로 원신호만 보존합니다.
 - `_safe_` 래퍼가 모든 `Exception`을 일괄 흡수하므로, provider의 세부 실패 원인은 결과에 구분되어 남지 않습니다(원신호 유무로만 추론).
 - 근처 검색은 단일 `category` 필터 기준이며, 다중 카테고리 혼합은 하지 않습니다. LLM이 없으면 카테고리 없이 검색합니다.
-- `PlacesResolver`의 `language_code`·`region_code`가 `_safe_resolve`·`_safe_nearby`에서 기본값(`ko`·`JP`)으로 고정되어 있어, 일본 외 지역에는 재조정이 필요합니다.
+- `PlacesResolver`의 `language_code`가 `_safe_search`·`_safe_nearby`에서 기본값(`ko`)으로 고정되어 있습니다(`region_code`는 미지정).
 - `_decay`의 감소폭·하한·임계값(0.6)은 실 API 검증(Modal 배포)에서 동작을 확인했으며, 값 자체는 이후 추가 튜닝 여지가 있습니다.
 - Provider Protocol이 별도 Port 파일이 아니라 `place_recognizer.py` 안에 정의되어 있어 계약과 조합 로직이 한 파일에 결합되어 있습니다.
 

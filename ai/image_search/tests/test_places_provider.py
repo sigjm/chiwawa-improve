@@ -360,3 +360,116 @@ class TestTypedErrors:
         provider = make_provider(handler)
         with pytest.raises(ProviderTransportError):
             provider.resolve_place("센소지")
+
+
+class TestLocationPrior:
+    # 위치 prior 가 있으면 Text Search 에 원형 locationBias 로 싣는다 (제한이 아니라 편향)
+    def test_search_text_sends_location_bias(self):
+        captured = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["body"] = json.loads(request.content)
+            return httpx.Response(200, json={"places": [google_place()]})
+
+        provider = make_provider(handler)
+        provider.search_text(
+            "블루보틀",
+            max_result_count=5,
+            location_bias=(35.0036, 135.7785),
+            bias_radius_m=800,
+        )
+
+        circle = captured["body"]["locationBias"]["circle"]
+        assert circle["center"] == {"latitude": 35.0036, "longitude": 135.7785}
+        assert circle["radius"] == 800
+        assert captured["body"]["pageSize"] == 5
+
+    # prior 가 없으면 locationBias 를 보내지 않는다 (기존 요청 형태 유지)
+    def test_search_text_omits_location_bias_without_prior(self):
+        captured = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["body"] = json.loads(request.content)
+            return httpx.Response(200, json={"places": []})
+
+        provider = make_provider(handler)
+        assert provider.search_text("블루보틀") == []
+
+        assert "locationBias" not in captured["body"]
+
+    # 촬영 위치 주변 탐색은 인기순이 아니라 거리순으로 요청한다 (카테고리 필터와 함께 쓸 수 있다)
+    def test_search_nearby_can_rank_by_distance(self):
+        captured = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["body"] = json.loads(request.content)
+            return httpx.Response(200, json={"places": []})
+
+        provider = make_provider(handler)
+        provider.search_nearby(
+            latitude=35.0,
+            longitude=135.7,
+            category=PlaceCategory.CAFE,
+            rank_by_distance=True,
+        )
+
+        assert captured["body"]["rankPreference"] == "DISTANCE"
+        assert captured["body"]["includedTypes"] == ["cafe"]
+
+    # 기본 근처 추천은 Places 기본 순위(인기순)를 그대로 쓴다
+    def test_search_nearby_default_keeps_places_ranking(self):
+        captured = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["body"] = json.loads(request.content)
+            return httpx.Response(200, json={"places": []})
+
+        provider = make_provider(handler)
+        provider.search_nearby(latitude=35.0, longitude=135.7)
+
+        assert "rankPreference" not in captured["body"]
+
+    # 촬영 좌표 주변을 찾을 때는 가까운 순으로 받을 수 있다 (기본은 Places 관련도순)
+    def test_search_text_can_rank_by_distance(self):
+        bodies: list = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            bodies.append(json.loads(request.content))
+            return httpx.Response(200, json={"places": [google_place()]})
+
+        provider = make_provider(handler)
+        provider.search_text("세븐일레븐", location_bias=(35.74, 139.85), rank_by_distance=True)
+        provider.search_text("세븐일레븐", location_bias=(35.74, 139.85))
+
+        assert bodies[0]["rankPreference"] == "DISTANCE"
+        assert "rankPreference" not in bodies[1]
+
+
+class TestClosedPlaces:
+    # 폐업한 장소는 후보로 쓰지 않는다 (실측: Places 가 CLOSED_PERMANENTLY 지점을 돌려줬다).
+    # 임시 휴업은 남긴다. 폐업 여부를 알려면 FieldMask 에 businessStatus 가 있어야 한다
+    def test_drops_permanently_closed_places(self):
+        captured_mask: list = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured_mask.append(request.headers.get("X-Goog-FieldMask", ""))
+            return httpx.Response(
+                200,
+                json={
+                    "places": [
+                        google_place(id="closed", businessStatus="CLOSED_PERMANENTLY"),
+                        google_place(id="paused", businessStatus="CLOSED_TEMPORARILY"),
+                        google_place(id="open", businessStatus="OPERATIONAL"),
+                        google_place(id="unknown"),
+                    ]
+                },
+            )
+
+        provider = make_provider(handler)
+
+        found = provider.search_text("코메다 커피", max_result_count=5)
+        nearby = provider.search_nearby(latitude=34.67, longitude=135.50)
+
+        assert [place.place_id for place in found] == ["paused", "open", "unknown"]
+        assert [place.place_id for place in nearby] == ["paused", "open", "unknown"]
+        assert all("places.businessStatus" in mask for mask in captured_mask)

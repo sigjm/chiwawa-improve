@@ -22,6 +22,7 @@ from chiwawa_backend.services.place_search import PlaceSearchProvider
 from chiwawa_backend.services.route_optimization import RoutePlanner
 from chiwawa_backend.services.route_planner_client import RemoteRoutePlanner
 from chiwawa_backend.services.time_zone import TimeZoneProvider
+from chiwawa_backend.services.trip_area import TripAreaResolver
 from chiwawa_backend.state import AppState
 
 
@@ -83,6 +84,16 @@ def get_route_planner() -> RoutePlanner:
 @lru_cache(maxsize=1)
 def get_place_search_provider() -> PlaceSearchProvider:
     return GooglePlaceSearchProvider(get_settings())
+
+
+@lru_cache(maxsize=1)
+def get_trip_area_resolver() -> TripAreaResolver:
+    # 원격(Modal) 이미지 검색일 때만 Backend 가 여행 도시 좌표를 구해 넘긴다.
+    # 원격 컨테이너는 요청 사이에 기억을 유지하지 못해 사진마다 다시 조회하기 때문이다.
+    # in-process 인식기는 같은 프로세스에서 직접 조회하므로 여기서 또 부르지 않는다.
+    image_search_url = get_settings().image_search_url
+    is_remote = bool(image_search_url and image_search_url.strip())
+    return TripAreaResolver(get_place_search_provider if is_remote else None)
 
 
 @lru_cache(maxsize=1)

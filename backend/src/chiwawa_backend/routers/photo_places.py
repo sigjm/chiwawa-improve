@@ -6,6 +6,7 @@ from chiwawa_backend.dependencies import (
     get_current_user_id,
     get_photo_place_recognizer,
     get_state,
+    get_trip_area_resolver,
 )
 from chiwawa_backend.schemas.places import (
     ConfirmedPhotoPlaceRead,
@@ -19,6 +20,7 @@ from chiwawa_backend.services.photo_places import (
     PhotoPlaceSearchContext,
     PhotoPlaceUploadContext,
 )
+from chiwawa_backend.services.trip_area import TripAreaResolver
 from chiwawa_backend.state import AppState
 
 router = APIRouter(
@@ -26,28 +28,29 @@ router = APIRouter(
     tags=["photo-places"],
 )
 StateDep = Annotated[AppState, Depends(get_state)]
-UserIdDep = Annotated[int, Depends(get_current_user_id)]
 RecognizerDep = Annotated[PhotoPlaceRecognizer, Depends(get_photo_place_recognizer)]
+TripAreaDep = Annotated[TripAreaResolver, Depends(get_trip_area_resolver)]
 
 
 @router.post(
     "/search",
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(get_current_user_id)],
 )
 async def search_photo_places(
     trip_id: str,
     payload: PhotoPlaceSearchRequest,
-    user_id: UserIdDep,
     state: StateDep,
     recognizer: RecognizerDep,
+    trip_area: TripAreaDep,
 ) -> PhotoPlaceSearchResponse:
-    _ = user_id
     return await photo_place_service.search_photo_places(
         state,
         PhotoPlaceSearchContext(
             trip_id=trip_id,
             payload=payload,
             recognizer=recognizer,
+            trip_area=trip_area,
         ),
     )
 
@@ -55,15 +58,15 @@ async def search_photo_places(
 @router.post(
     "/search-upload",
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(get_current_user_id)],
 )
 async def search_uploaded_photo_places(
     trip_id: str,
     file: Annotated[UploadFile, File()],
-    user_id: UserIdDep,
     state: StateDep,
     recognizer: RecognizerDep,
+    trip_area: TripAreaDep,
 ) -> PhotoPlaceSearchResponse:
-    _ = user_id
     content_type = file.content_type or "application/octet-stream"
     image_bytes = await file.read()
     return await photo_place_service.search_uploaded_photo_places(
@@ -73,6 +76,7 @@ async def search_uploaded_photo_places(
             image_bytes=image_bytes,
             content_type=content_type,
             recognizer=recognizer,
+            trip_area=trip_area,
         ),
     )
 

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:chiwawa/core/api/api_exception.dart';
 import 'package:chiwawa/core/models/photo_upload.dart';
 import 'package:chiwawa/core/repositories/api/api_photo_place_repository.dart';
 import 'package:chiwawa/core/services/trip_session_service.dart';
@@ -31,6 +32,8 @@ void main() {
             'latitude': 35.7148,
             'longitude': 139.7967,
             'confidence': 0.94,
+            'reason': '랜드마크 감지 결과와 일치 (신뢰도 0.94)',
+            'category': 'TEMPLE_SHRINE',
           },
         ],
       },
@@ -76,6 +79,8 @@ void main() {
       'image/png',
     );
     expect(candidates.single.searchId, 'photo-search-1');
+    expect(candidates.single.reason, '랜드마크 감지 결과와 일치 (신뢰도 0.94)');
+    expect(candidates.single.category, '사찰·신사');
     expect(candidates.single.imagePath, 'blob:trip-photo');
     expect(
       adapter.requests.last.path,
@@ -87,6 +92,57 @@ void main() {
       containsPair('candidate_id', 'candidate-1'),
     );
     expect(confirmed.wantedPlaceId, 'wanted-place-1');
+  });
+
+  _labelAndPickTests();
+  _oversizedUploadTest();
+}
+
+void _oversizedUploadTest() {
+  test('oversized photo is rejected with a clear message before uploading',
+      () async {
+    final store = TripIdStore();
+    await store.save('trip-photo-contract');
+    final dio = Dio();
+    final adapter = _QueueHttpClientAdapter(const []);
+    dio.httpClientAdapter = adapter;
+    final repository = ApiPhotoPlaceRepository(dio: dio, tripIdStore: store);
+
+    await expectLater(
+      repository.analyzePhotoCandidates(
+        PhotoUpload(
+          bytes: Uint8List(maxPhotoUploadBytes + 1),
+          fileName: 'huge.jpg',
+          mimeType: 'image/jpeg',
+          previewPath: 'blob:huge',
+        ),
+      ),
+      throwsA(
+        isA<ApiException>().having(
+          (error) => error.message,
+          'message',
+          contains('20MB'),
+        ),
+      ),
+    );
+    expect(adapter.requests, isEmpty);
+  });
+}
+
+void _labelAndPickTests() {
+  test('category codes map to Korean labels and unknown codes stay hidden', () {
+    expect(photoCategoryLabel('CAFE'), '카페');
+    expect(photoCategoryLabel('AQUARIUM_ZOO'), '수족관·동물원');
+    // 정보가 없는 값은 빈 문자열로 두어 화면에서 칩을 숨긴다
+    expect(photoCategoryLabel('ETC'), '');
+    expect(photoCategoryLabel('SOMETHING_NEW'), '');
+    expect(photoCategoryLabel(null), '');
+  });
+
+  test('web picks the original photo so its capture location survives', () {
+    // 웹에서 품질을 지정하면 캔버스로 다시 그려져 EXIF(촬영 좌표)가 사라진다
+    expect(photoPickImageQuality(isWeb: true), isNull);
+    expect(photoPickImageQuality(isWeb: false), 80);
   });
 }
 

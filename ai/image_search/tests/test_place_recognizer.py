@@ -1,5 +1,7 @@
 # services/place_recognizer.py 테스트 — 캐스케이드 조립 로직
 # 실제 provider 대신 가짜 provider(Protocol 만족)를 주입해 분기·상태·좌표 출처를 검증
+import pytest
+
 from ai.image_search.domain.schemas import PlaceCategory
 from ai.image_search.domain.search_schemas import (
     CandidateSource,
@@ -387,6 +389,1001 @@ class TestCascade:
         assert confs[0] == 0.9  # 식별
         assert confs[1] > confs[2] > confs[3]  # 근처는 순차 감소
         assert all(0 <= c <= 1 for c in confs)
+
+
+# geo-sleuth 원칙 이식: 위치 prior · 동명 후보 순위화 · 읽은 글자 폴백 · 위치 힌트 주변 탐색
+class TestEvidenceRanking:
+    # 랜드마크는 사진에서 나온 좌표를 앵커로 삼아 그 주변으로 이름을 검색한다
+    # (좌표를 그대로 쓰는 게 아니라 검색을 편향할 뿐 — 최종 좌표는 여전히 Places)
+    def test_landmark_seed_searches_near_detected_coordinates(self):
+        places = FakePlaces(resolved=resolved_place(), nearby=[])
+        rec = make_recognizer(
+            FakeLandmark(landmark_det(lat=35.70, lng=139.70, score=0.9)),
+            FakeVision(vision_id()),
+            places,
+        )
+
+        result = rec.search(req(latitude=37.5, longitude=127.0))  # 요청 힌트보다 사진 앵커 우선
+
+        assert places.bias_calls == [(35.70, 139.70)]
+        assert result.identified.latitude == 35.7148  # Places 값
+
+    # LLM 추정은 요청의 위치 힌트(EXIF GPS 등)를 prior 로 쓴다
+    def test_llm_seed_searches_near_request_location_hint(self):
+        places = FakePlaces(resolved=resolved_place(lat=35.0036, lng=135.7785), nearby=[])
+        rec = make_recognizer(FakeLandmark(None), FakeVision(vision_id()), places)
+
+        rec.search(req(latitude=35.0036, longitude=135.7785))
+
+        assert places.bias_calls == [(35.0036, 135.7785)]
+
+    # 위도·경도가 쌍으로 오지 않으면 prior 로 쓰지 않는다
+    def test_half_location_hint_is_ignored(self):
+        places = FakePlaces(resolved=resolved_place(), nearby=[])
+        rec = make_recognizer(FakeLandmark(None), FakeVision(vision_id()), places)
+
+        rec.search(req(latitude=35.0036))
+
+        assert places.bias_calls == [None]
+
+    # 좌표 prior 가 없으면 여행 국가 안의 결과를 1순위로 올리고, 밀려난 결과는 동명 후보로 남긴다
+    def test_prefers_match_in_trip_country_and_keeps_namesake(self):
+        places = FakePlaces(
+            resolve_map={
+                "이치란": [
+                    resolved_place(name="이치란 뉴욕", city="뉴욕", country="미국", pid="us"),
+                    resolved_place(name="이치란 시부야", city="도쿄", country="일본", pid="jp"),
+                ]
+            },
+            nearby=[],
+        )
+        rec = make_recognizer(
+            FakeLandmark(None), FakeVision(vision_id(guess="이치란", conf=0.8)), places
+        )
+
+        result = rec.search(req(country="일본"))
+
+        assert result.identified.place_id == "jp"
+        assert [c.place_id for c in result.candidates] == ["jp", "us"]
+        namesake = result.candidates[1]
+        assert namesake.source is CandidateSource.LLM
+        assert namesake.confidence < result.identified.confidence
+        assert namesake.country == "미국"  # 여행지 폴백이 아니라 Places 실제값
+
+    # 여행 국가와 일치하는 결과가 없으면 Places 순서를 그대로 둔다
+    def test_keeps_places_order_when_no_match_in_trip_country(self):
+        places = FakePlaces(
+            resolve_map={
+                "에펠탑": [
+                    resolved_place(name="에펠탑", country="프랑스", pid="fr"),
+                    resolved_place(name="에펠탑 카페", country="미국", pid="us"),
+                ]
+            },
+            nearby=[],
+        )
+        rec = make_recognizer(FakeLandmark(None), FakeVision(vision_id(guess="에펠탑")), places)
+
+        result = rec.search(req(country="일본"))
+
+        assert result.identified.place_id == "fr"
+
+    # 좌표 prior 가 있으면 여행지(더 약한 가설)로 재정렬하지 않는다
+    def test_location_prior_outranks_trip_country(self):
+        places = FakePlaces(
+            resolve_map={
+                "블루보틀": [
+                    resolved_place(name="블루보틀 성수", lat=37.5480, lng=127.0456,
+                                   country="대한민국", pid="kr"),
+                    resolved_place(name="블루보틀 교토", lat=35.0116, lng=135.7860,
+                                   country="일본", pid="jp"),
+                ]
+            },
+            nearby=[],
+        )
+        rec = make_recognizer(FakeLandmark(None), FakeVision(vision_id()), places)
+
+        result = rec.search(req(latitude=37.54, longitude=127.05, country="일본"))
+
+        assert result.identified.place_id == "kr"
+
+    # locationBias 는 편향일 뿐이라 Places 가 먼 동명 장소를 첫 결과로 줄 수 있다.
+    # prior 반경 안의 결과가 있으면 그것을 1순위로 올리고, 먼 결과는 동명 후보로 남긴다.
+    def test_match_inside_location_prior_outranks_far_first_result(self):
+        places = FakePlaces(
+            resolve_map={
+                "블루보틀": [
+                    resolved_place(name="블루보틀 교토", lat=35.0116, lng=135.7860, pid="far"),
+                    resolved_place(name="블루보틀 성수", lat=37.5480, lng=127.0456, pid="near"),
+                    resolved_place(name="블루보틀 삼청", lat=37.5800, lng=126.9810, pid="mid"),
+                ]
+            },
+            nearby=[],
+        )
+        rec = make_recognizer(FakeLandmark(None), FakeVision(vision_id()), places)
+
+        result = rec.search(req(latitude=37.54, longitude=127.05))
+
+        # 성수(약 1km)만 반경 2km 안 → 1순위. 나머지는 Places 순서 그대로
+        assert [c.place_id for c in result.candidates] == ["near", "far", "mid"]
+
+    # 랜드마크 앵커도 같다: 감지 좌표 근처의 결과가 먼 동명 장소보다 앞선다
+    def test_match_near_landmark_anchor_outranks_far_namesake(self):
+        places = FakePlaces(
+            resolve_map={
+                "금각사": [
+                    resolved_place(name="금각사(다른 도시)", lat=33.59, lng=130.40, pid="far"),
+                    resolved_place(name="금각사", lat=35.0394, lng=135.7292, pid="near"),
+                ]
+            },
+            nearby=[],
+        )
+        rec = make_recognizer(
+            FakeLandmark(landmark_det(name="금각사", lat=35.0395, lng=135.7290, score=0.9)),
+            FakeVision(vision_id()),
+            places,
+        )
+
+        result = rec.search(req())
+
+        assert result.identified.place_id == "near"
+
+    # 촬영 좌표가 있으면 바로 그 앞(hint_radius_m 안)의 동명 지점이 같은 동네의 다른 지점보다 앞선다
+    # (실사진 측정: 지점 20m 앞에서 찍었는데 Places 는 410m 떨어진 지점을 먼저 돌려줬다)
+    def test_namesake_at_capture_point_outranks_one_elsewhere_nearby(self):
+        places = FakePlaces(
+            resolve_map={
+                "이치란": [
+                    resolved_place(
+                        name="이치란 나고야 사카에점", lat=35.1672, lng=136.9072, pid="sakae"
+                    ),
+                    resolved_place(
+                        name="이치란 나고야니시키점", lat=35.1697, lng=136.9041, pid="nishiki"
+                    ),
+                ]
+            },
+            nearby=[],
+        )
+        rec = make_recognizer(
+            FakeLandmark(None), FakeVision(vision_id(guess="이치란")), places
+        )
+
+        result = rec.search(req(latitude=35.16959, longitude=136.90402))
+
+        assert [c.place_id for c in result.candidates] == ["nishiki", "sakae"]
+
+    # 촬영 지점 우선은 어느 반구에서나 같아야 한다: 남반구·서반구는 좌표가 음수이고,
+    # 날짜변경선을 사이에 둔 두 점은 경도 부호가 다르지만 100m 거리다
+    @pytest.mark.parametrize(
+        ("capture", "at_capture", "elsewhere"),
+        [
+            ((-22.9519, -43.2105), (-22.9520, -43.2104), (-22.9068, -43.1729)),  # 리우 (남·서)
+            ((40.7580, -73.9855), (40.7581, -73.9856), (40.7128, -74.0060)),  # 뉴욕 (북·서)
+            ((-33.8568, 151.2153), (-33.8567, 151.2152), (-33.8688, 151.2093)),  # 시드니 (남·동)
+            ((-16.78, 179.9995), (-16.78, -179.9995), (-16.78, 179.9)),  # 피지 (날짜변경선)
+        ],
+    )
+    def test_capture_point_preference_holds_in_every_hemisphere(
+        self, capture, at_capture, elsewhere
+    ):
+        places = FakePlaces(
+            resolve_map={
+                "Starbucks": [
+                    resolved_place(name="Starbucks", lat=elsewhere[0], lng=elsewhere[1], pid="elsewhere"),
+                    resolved_place(name="Starbucks", lat=at_capture[0], lng=at_capture[1], pid="here"),
+                ]
+            },
+            nearby=[],
+        )
+        rec = make_recognizer(
+            FakeLandmark(None), FakeVision(vision_id(guess="Starbucks")), places
+        )
+
+        result = rec.search(req(latitude=capture[0], longitude=capture[1]))
+
+        assert [c.place_id for c in result.candidates] == ["here", "elsewhere"]
+        assert places.distance_rank_calls == [False]
+
+    # 촬영 지점 바로 앞에 같은 종류의 동명 장소(체인 지점)가 여럿이면 가장 가까운 것이 1위다.
+    # 그들 사이의 Places 순서는 믿지 않는다 (실사진 측정: 역 앞 편의점 3곳이 모두 200m 안이었고
+    # Places 는 179m 지점을 먼저 줬으며, 같은 요청에도 순서가 달라졌다)
+    def test_nearest_branch_wins_inside_capture_range(self):
+        places = FakePlaces(
+            resolve_map={
+                "FamilyMart": [
+                    resolved_place(name="FamilyMart A", lat=34.6660, lng=135.5630, pid="far", kind="convenience_store"),
+                    resolved_place(name="FamilyMart B", lat=34.6652, lng=135.5630, pid="mid", kind="convenience_store"),
+                    resolved_place(name="FamilyMart C", lat=34.6645, lng=135.5630, pid="here", kind="convenience_store"),
+                ]
+            },
+            nearby=[],
+        )
+        rec = make_recognizer(
+            FakeLandmark(None), FakeVision(vision_id(guess="FamilyMart")), places
+        )
+
+        result = rec.search(req(latitude=34.6644, longitude=135.5630))
+
+        assert [c.place_id for c in result.candidates] == ["here", "mid", "far"]
+
+    # 종류가 다르면 Places 순서를 둔다: 골목을 찍었는데 그 이름이 들어간 더 가까운 가게가
+    # 골목 자체를 밀어내면 안 된다
+    def test_different_kind_inside_capture_range_keeps_places_order(self):
+        places = FakePlaces(
+            resolve_map={
+                "폰토초": [
+                    resolved_place(name="폰토초", lat=35.0052, lng=135.7711, pid="alley", kind="tourist_attraction"),
+                    resolved_place(name="야키니쿠 폰토초점", lat=35.0046, lng=135.7711, pid="shop", kind="restaurant"),
+                ]
+            },
+            nearby=[],
+        )
+        rec = make_recognizer(
+            FakeLandmark(None), FakeVision(vision_id(guess="폰토초")), places
+        )
+
+        result = rec.search(req(latitude=35.0046, longitude=135.7711))
+
+        assert [c.place_id for c in result.candidates] == ["alley", "shop"]
+
+    # 같은 종류끼리만 자리를 바꾼다: 그 사이에 낀 다른 종류의 결과는 제 자리에 남는다
+    def test_nearest_branch_swaps_only_among_its_own_kind(self):
+        places = FakePlaces(
+            resolve_map={
+                "블루보틀": [
+                    resolved_place(name="블루보틀 A", lat=34.6660, lng=135.5630, pid="cafe-far", kind="cafe"),
+                    resolved_place(name="블루보틀 식당", lat=34.6653, lng=135.5630, pid="diner", kind="restaurant"),
+                    resolved_place(name="블루보틀 C", lat=34.6646, lng=135.5630, pid="cafe-here", kind="cafe"),
+                ]
+            },
+            nearby=[],
+        )
+        rec = make_recognizer(FakeLandmark(None), FakeVision(vision_id()), places)
+
+        result = rec.search(req(latitude=34.6644, longitude=135.5630))
+
+        assert [c.place_id for c in result.candidates] == ["cafe-here", "diner", "cafe-far"]
+
+    # 촬영 좌표가 있는데 바로 앞에서 찾은 결과가 없으면 가까운 순으로 한 번 더 묻는다.
+    # 지점이 촘촘한 체인은 관련도순 5건에 바로 앞 지점이 빠진다 (실사진 측정: 편의점)
+    def test_looks_again_by_distance_when_nothing_matched_at_capture_point(self):
+        other = resolved_place(name="세븐일레븐 옆 동네점", lat=35.7448, lng=139.8500, pid="other")
+        here = resolved_place(name="세븐일레븐", lat=35.7410, lng=139.8500, pid="here")
+        places = FakePlaces(
+            resolve_map={"세븐일레븐": [other]},
+            distance_map={"세븐일레븐": [here, other]},
+            nearby=[],
+        )
+        rec = make_recognizer(
+            FakeLandmark(None), FakeVision(vision_id(guess="세븐일레븐")), places
+        )
+
+        result = rec.search(req(latitude=35.7411, longitude=139.8500))
+
+        assert [c.place_id for c in result.candidates] == ["here", "other"]
+        assert places.distance_rank_calls == [False, True]
+
+    # 다시 물어도 바로 앞에 없으면(멀리서 찍은 피사체) 처음 결과를 그대로 쓴다
+    def test_distance_search_does_not_replace_a_far_subject(self):
+        tower = resolved_place(name="도쿄 타워", lat=35.6586, lng=139.7454, pid="tower")
+        places = FakePlaces(
+            resolve_map={"도쿄 타워": [tower]},
+            distance_map={"도쿄 타워": [tower]},
+            nearby=[],
+        )
+        rec = make_recognizer(
+            FakeLandmark(None), FakeVision(vision_id(guess="도쿄 타워")), places
+        )
+
+        result = rec.search(req(latitude=35.6558, longitude=139.7499))  # 500m 밖
+
+        assert [c.place_id for c in result.candidates] == ["tower"]
+
+    # 다시 물어 나온 결과라도 바로 앞(200m)이 아니면 쓰지 않는다
+    def test_distance_search_results_outside_capture_range_are_ignored(self):
+        tower = resolved_place(name="도쿄 타워", lat=35.6586, lng=139.7454, pid="tower")
+        shop = resolved_place(name="도쿄 타워 기념품점", lat=35.6580, lng=139.7470, pid="shop")
+        places = FakePlaces(
+            resolve_map={"도쿄 타워": [tower]}, distance_map={"도쿄 타워": [shop, tower]}, nearby=[]
+        )
+        rec = make_recognizer(
+            FakeLandmark(None), FakeVision(vision_id(guess="도쿄 타워")), places
+        )
+
+        result = rec.search(req(latitude=35.6558, longitude=139.7499))
+
+        assert [c.place_id for c in result.candidates] == ["tower"]
+
+    # 다시 물은 응답에 같은 장소가 두 번 와도 후보에는 한 번만 싣는다
+    def test_distance_search_duplicates_are_listed_once(self):
+        other = resolved_place(name="세븐일레븐 옆 동네점", lat=35.7448, lng=139.8500, pid="other")
+        here = resolved_place(name="세븐일레븐", lat=35.7410, lng=139.8500, pid="here")
+        places = FakePlaces(
+            resolve_map={"세븐일레븐": [other]},
+            distance_map={"세븐일레븐": [here, here, other]},
+            nearby=[],
+        )
+        rec = make_recognizer(
+            FakeLandmark(None), FakeVision(vision_id(guess="세븐일레븐")), places
+        )
+
+        result = rec.search(req(latitude=35.7411, longitude=139.8500))
+
+        assert [c.place_id for c in result.candidates] == ["here", "other"]
+
+    # 바로 앞에서 이미 찾았거나, prior 가 촬영 좌표가 아니면(여행 도시) 다시 묻지 않는다
+    def test_single_search_when_matched_at_capture_point_or_without_capture_location(self):
+        with_hint = FakePlaces(resolved=resolved_place(), nearby=[])
+        make_recognizer(FakeLandmark(None), FakeVision(vision_id()), with_hint).search(
+            req(latitude=35.7148, longitude=139.7967)
+        )
+        with_trip = FakePlaces(resolved=resolved_place(), nearby=[])
+        make_recognizer(FakeLandmark(None), FakeVision(vision_id()), with_trip).search(
+            req(city="도쿄", country="일본", trip_latitude=35.68, trip_longitude=139.76)
+        )
+
+        assert with_hint.distance_rank_calls == [False]
+        assert with_trip.distance_rank_calls == [False]
+
+    # prior 반경 안에 결과가 하나도 없으면 Places 순서를 그대로 둔다 (멀리서 찍은 피사체일 수 있다)
+    def test_keeps_places_order_when_nothing_inside_location_prior(self):
+        places = FakePlaces(
+            resolve_map={
+                "후지산": [
+                    resolved_place(name="후지산", lat=35.3606, lng=138.7274, pid="mt"),
+                    resolved_place(name="후지산 박물관", lat=35.2000, lng=138.6000, pid="museum"),
+                ]
+            },
+            nearby=[],
+        )
+        rec = make_recognizer(
+            FakeLandmark(None), FakeVision(vision_id(guess="후지산")), places
+        )
+
+        result = rec.search(req(latitude=35.5000, longitude=138.7600))  # 가와구치코 부근
+
+        assert result.identified.place_id == "mt"
+
+    # 동명 후보는 상한까지만 싣고, 남는 자리는 근처 추천이 채운다 (서로 중복 없이)
+    def test_namesakes_capped_and_nearby_fills_the_rest(self):
+        matches = [resolved_place(name=f"스타벅스 {i}", pid=f"m{i}") for i in range(4)]
+        places = FakePlaces(
+            resolve_map={"스타벅스": matches},
+            nearby=[
+                resolved_place(name="스타벅스 1", pid="m1"),  # 동명 후보와 중복 → 제외
+                resolved_place(name="근처A", pid="na"),
+                resolved_place(name="근처B", pid="nb"),
+                resolved_place(name="근처C", pid="nc"),
+            ],
+        )
+        rec = make_recognizer(
+            FakeLandmark(None), FakeVision(vision_id(guess="스타벅스", conf=0.8)), places
+        )
+
+        result = rec.search(req(max_candidates=5))
+
+        assert [c.place_id for c in result.candidates] == ["m0", "m1", "m2", "na", "nb"]
+        assert [c.source for c in result.candidates[3:]] == [CandidateSource.NEARBY] * 2
+        confs = [c.confidence for c in result.candidates]
+        assert confs == sorted(confs, reverse=True)  # 뒤로 갈수록 낮아진다
+        assert places.nearby_calls[0]["max"] == 5  # 근처 2 + 제외 대비 3(식별 1 + 동명 2)
+
+    # 랜드마크는 사진 좌표로 앵커된 유일 식별이라 동명 후보를 늘어놓지 않는다
+    def test_landmark_seed_lists_no_namesakes(self):
+        places = FakePlaces(
+            resolve_map={
+                "센소지": [
+                    resolved_place(pid="p1"),
+                    resolved_place(name="센소지 호조몬", pid="p2"),
+                ]
+            },
+            nearby=[resolved_place(name="근처", pid="n1")],
+        )
+        rec = make_recognizer(
+            FakeLandmark(landmark_det(score=0.9)), FakeVision(vision_id()), places
+        )
+
+        result = rec.search(req())
+
+        assert [c.place_id for c in result.candidates] == ["p1", "n1"]
+
+    # 이름 추정이 없어도 읽은 간판 글자를 여행 도시 범위로 검색한다
+    def test_visible_text_fallback_scoped_to_trip_city(self):
+        places = FakePlaces(
+            resolve_map={"% ARABICA 교토 일본": resolved_place(name="% 아라비카 교토", pid="a1")},
+            nearby=[],
+        )
+        rec = make_recognizer(
+            FakeLandmark(None),
+            FakeVision(vision_id(guess=None, conf=0.9, texts=["% ARABICA"])),
+            places,
+        )
+
+        result = rec.search(req(city="교토", country="일본"))
+
+        # 여행지 좌표 조회(결과 없음) → 글자 + 여행지 검색
+        assert places.resolve_calls == ["교토 일본", "% ARABICA 교토 일본"]
+        assert result.identified.place_id == "a1"
+        assert result.identified.source is CandidateSource.LLM
+        assert result.identified.confidence == 0.5  # 직접 식별이 아니므로 상한 적용
+        assert "% ARABICA" in result.identified.reason
+
+    # 위치 힌트가 있으면 글자만으로 그 주변을 검색한다
+    def test_visible_text_fallback_near_location_hint(self):
+        places = FakePlaces(
+            resolve_map={"% ARABICA": resolved_place(pid="a1", lat=35.0036, lng=135.7785)},
+            nearby=[],
+        )
+        rec = make_recognizer(
+            FakeLandmark(None),
+            FakeVision(vision_id(guess=None, texts=["% ARABICA"])),
+            places,
+        )
+
+        rec.search(req(latitude=35.0036, longitude=135.7785, city="교토"))
+
+        assert places.resolve_calls == ["% ARABICA"]
+        assert places.bias_calls == [(35.0036, 135.7785)]
+
+    # 글자만 있고 지역을 좁힐 근거가 없으면 검색하지 않는다 (전 세계 동명 간판과 구분 불가)
+    def test_visible_text_fallback_needs_a_location_scope(self):
+        places = FakePlaces(resolved=resolved_place())
+        rec = make_recognizer(
+            FakeLandmark(None),
+            FakeVision(vision_id(guess=None, texts=["% ARABICA"])),
+            places,
+        )
+
+        result = rec.search(req())
+
+        assert places.resolve_calls == []
+        assert result.status is RecognitionStatus.FAILED
+
+    # 이름 추정이 Places 에서 안 잡히면 글자로 이어서 시도한다 (가격·한 글자 등 잡음은 건너뜀)
+    def test_visible_text_tried_after_unresolvable_guess_skipping_noise(self):
+        places = FakePlaces(
+            resolve_map={"喫茶ソワレ 교토": resolved_place(name="소와레", pid="s1")},
+            nearby=[],
+        )
+        rec = make_recognizer(
+            FakeLandmark(None),
+            FakeVision(
+                vision_id(guess="없는 이름", texts=["¥500", "茶", " 喫茶ソワレ ", "없는 이름"])
+            ),
+            places,
+        )
+
+        result = rec.search(req(city="교토"))
+
+        # 도시 좌표를 못 찾았으므로 이름도 여행지를 붙여 먼저 묻는다 (TestTripScopeInQuery)
+        assert places.resolve_calls == [
+            "교토",
+            "없는 이름 교토",
+            "없는 이름",
+            "喫茶ソワレ 교토",
+        ]
+        assert result.identified.place_id == "s1"
+
+    # 글자 검색 횟수에는 상한이 있다 (외부 호출 예산)
+    def test_visible_text_queries_are_capped(self):
+        places = FakePlaces(resolve_map={}, nearby=[])
+        rec = make_recognizer(
+            FakeLandmark(None),
+            FakeVision(vision_id(guess=None, texts=["가나", "다라", "마바", "사아"])),
+            places,
+        )
+
+        result = rec.search(req(city="교토"))
+
+        assert places.resolve_calls == ["교토", "가나 교토", "다라 교토"]
+        assert result.status is RecognitionStatus.FAILED
+
+    # 이름은 못 찾았지만 위치 힌트가 있으면 그 주변 장소를 거리순으로 제시한다
+    # (식별은 아니므로 identified 는 비우고 PARTIAL)
+    def test_location_hint_only_offers_places_around_it(self):
+        places = FakePlaces(
+            nearby=[resolved_place(name="가까운 카페", pid="n1"),
+                    resolved_place(name="조금 먼 카페", pid="n2")],
+        )
+        rec = make_recognizer(
+            FakeLandmark(None),
+            FakeVision(vision_id(guess=None, cat=PlaceCategory.CAFE)),
+            places,
+        )
+
+        result = rec.search(req(latitude=35.0036, longitude=135.7785, max_candidates=3))
+
+        assert result.status is RecognitionStatus.PARTIAL
+        assert result.identified is None
+        assert [c.place_id for c in result.candidates] == ["n1", "n2"]
+        assert all(c.source is CandidateSource.NEARBY for c in result.candidates)
+        assert [c.confidence for c in result.candidates] == [0.5, 0.35]
+        call = places.nearby_calls[0]
+        assert (call["lat"], call["lng"]) == (35.0036, 135.7785)
+        assert call["by_distance"] is True
+        assert call["radius"] == 200
+        assert call["category"] is PlaceCategory.CAFE
+        assert call["max"] == 3
+
+    # 위치 힌트 주변에도 아무것도 없으면 FAILED
+    def test_location_hint_only_without_nearby_is_failed(self):
+        rec = make_recognizer(
+            FakeLandmark(None), FakeVision(vision_id(guess=None)), FakePlaces(nearby=[])
+        )
+
+        result = rec.search(req(latitude=35.0036, longitude=135.7785))
+
+        assert result.status is RecognitionStatus.FAILED
+        assert result.candidates == []
+
+
+# 좌표 prior(랜드마크 앵커·촬영 좌표)가 없을 때 여행 도시를 넓은 위치 prior 로 쓴다
+class TestBranchAmbiguity:
+    # 촬영 좌표 없이 고른 체인 지점은 어느 지점인지 알 수 없다 (실사진 측정: 좌표가 없으면
+    # 편의점·카페 체인의 첫 후보는 대부분 같은 도시의 다른 지점이었다). 확신하는 척하지 않는다
+    def test_branch_picked_without_capture_location_says_so(self):
+        places = FakePlaces(
+            resolve_map={
+                "로손": [
+                    resolved_place(name="로손 A", lat=34.70, lng=135.50, pid="a", kind="convenience_store"),
+                    resolved_place(name="로손 B", lat=34.68, lng=135.54, pid="b", kind="convenience_store"),
+                ]
+            },
+            nearby=[],
+        )
+        rec = make_recognizer(
+            FakeLandmark(None), FakeVision(vision_id(guess="로손", conf=0.9)), places
+        )
+
+        result = rec.search(req(city="오사카", country="일본", trip_latitude=34.69, trip_longitude=135.50))
+
+        assert "촬영 위치" in result.identified.reason
+        assert result.identified.confidence == rec.config.weak_evidence_confidence
+        assert all(c.confidence <= result.identified.confidence for c in result.candidates)
+
+    # 촬영 좌표가 있으면 지점을 가릴 근거가 있으므로 문구를 붙이지 않는다
+    def test_branch_picked_with_capture_location_keeps_confidence(self):
+        places = FakePlaces(
+            resolve_map={
+                "로손": [
+                    resolved_place(name="로손 A", lat=34.6808, lng=135.5457, pid="a", kind="convenience_store"),
+                    resolved_place(name="로손 B", lat=34.70, lng=135.50, pid="b", kind="convenience_store"),
+                ]
+            },
+            nearby=[],
+        )
+        rec = make_recognizer(
+            FakeLandmark(None), FakeVision(vision_id(guess="로손", conf=0.9)), places
+        )
+
+        result = rec.search(req(latitude=34.6807, longitude=135.5457))
+
+        assert "촬영 위치" not in result.identified.reason
+        assert result.identified.confidence == 0.9
+
+    # 같은 부지 안의 하위 장소(본당 등)나 종류가 다른 결과는 "다른 지점"이 아니다
+    def test_place_with_sub_places_is_not_flagged(self):
+        places = FakePlaces(
+            resolve_map={
+                "기요미즈데라": [
+                    resolved_place(name="기요미즈데라", lat=34.9949, lng=135.7850, pid="temple", kind="buddhist_temple"),
+                    resolved_place(name="기요미즈데라 본당", lat=34.9948, lng=135.7851, pid="hall", kind="buddhist_temple"),
+                    resolved_place(name="기요미즈 주차장", lat=34.9990, lng=135.7800, pid="parking", kind="parking"),
+                ]
+            },
+            nearby=[],
+        )
+        rec = make_recognizer(
+            FakeLandmark(None), FakeVision(vision_id(guess="기요미즈데라", conf=0.9)), places
+        )
+
+        result = rec.search(req(city="교토", country="일본", trip_latitude=35.01, trip_longitude=135.77))
+
+        assert "촬영 위치" not in result.identified.reason
+        assert result.identified.confidence == 0.9
+
+
+class TestBranchAmbiguityBySeed:
+    FAR_NAMESAKES = [
+        resolved_place(name="금각사", lat=35.0394, lng=135.7292, pid="kyoto", kind="buddhist_temple"),
+        resolved_place(name="금각사(다른 도시)", lat=33.59, lng=130.40, pid="far", kind="buddhist_temple"),
+    ]
+
+    # 랜드마크 시드는 사진에서 나온 앵커로 고른 것이라 "어느 지점인지 모름"이 아니다
+    def test_landmark_seed_is_not_flagged(self):
+        places = FakePlaces(resolve_map={"금각사": self.FAR_NAMESAKES}, nearby=[])
+        rec = make_recognizer(
+            FakeLandmark(landmark_det(name="금각사", lat=35.0395, lng=135.7290, score=0.9)),
+            FakeVision(vision_id()),
+            places,
+        )
+
+        result = rec.search(req(city="교토", country="일본", trip_latitude=35.01, trip_longitude=135.77))
+
+        assert result.identified.source is CandidateSource.LANDMARK
+        assert "촬영 위치" not in result.identified.reason
+        assert result.identified.confidence == 0.9
+
+    # 글자 폴백으로 찾은 체인 지점도 촬영 좌표가 없으면 그렇게 적는다 (confidence 는 이미 상한 이하)
+    def test_text_fallback_branch_is_flagged(self):
+        places = FakePlaces(
+            resolve_map={
+                "LAWSON 오사카 일본": [
+                    resolved_place(name="로손 A", lat=34.70, lng=135.50, pid="a", kind="convenience_store"),
+                    resolved_place(name="로손 B", lat=34.68, lng=135.54, pid="b", kind="convenience_store"),
+                ]
+            },
+            nearby=[],
+        )
+        rec = make_recognizer(
+            FakeLandmark(None), FakeVision(vision_id(guess=None, conf=0.9, texts=["LAWSON"])), places
+        )
+
+        result = rec.search(req(city="오사카", country="일본", trip_latitude=34.69, trip_longitude=135.50))
+
+        assert result.identified.place_id == "a"
+        assert "촬영 위치" in result.identified.reason
+        assert result.identified.confidence <= rec.config.weak_evidence_confidence
+
+
+class TestTripAreaPrior:
+    KYOTO = resolved_place(name="교토", lat=35.0116, lng=135.7681, city="교토", pid="city")
+
+    # 여행 도시 좌표를 한 번 찾아 이름 검색을 그 주변(넓은 반경)으로 편향하고,
+    # 반경 안의 결과를 1순위로 올린다 — 서버 IP 근처 지점이 정답이 되는 것을 막는다
+    def test_llm_seed_without_coordinates_is_biased_to_trip_city(self):
+        places = FakePlaces(
+            resolve_map={
+                "교토 일본": self.KYOTO,
+                "스타벅스": [
+                    resolved_place(name="스타벅스 애슈번", lat=39.0440, lng=-77.4880,
+                                   country="미국", pid="us"),
+                    resolved_place(name="스타벅스 교토 산조오하시", lat=35.0090, lng=135.7716,
+                                   pid="kyoto"),
+                ],
+            },
+            nearby=[],
+        )
+        rec = make_recognizer(
+            FakeLandmark(None), FakeVision(vision_id(guess="스타벅스")), places
+        )
+
+        result = rec.search(req(city="교토", country="일본"))
+
+        assert places.resolve_calls == ["교토 일본", "스타벅스"]
+        assert places.bias_calls == [None, (35.0116, 135.7681)]
+        assert places.radius_calls[1] == 20000
+        assert result.identified.place_id == "kyoto"
+        assert [c.place_id for c in result.candidates] == ["kyoto", "us"]
+
+    # Backend 가 여행 도시 좌표를 실어 보내면 조회 없이 그 좌표를 쓴다 (사진마다 Places 를 다시 부르지 않는다)
+    def test_supplied_trip_coordinates_skip_the_lookup(self):
+        places = FakePlaces(
+            resolve_map={
+                "스타벅스": [
+                    resolved_place(name="스타벅스 애슈번", lat=39.0440, lng=-77.4880,
+                                   country="미국", pid="us"),
+                    resolved_place(name="스타벅스 교토 산조오하시", lat=35.0090, lng=135.7716,
+                                   pid="kyoto"),
+                ],
+            },
+            nearby=[],
+        )
+        rec = make_recognizer(
+            FakeLandmark(None), FakeVision(vision_id(guess="스타벅스")), places
+        )
+
+        result = rec.search(
+            req(city="교토", country="일본", trip_latitude=35.0116, trip_longitude=135.7681)
+        )
+
+        assert places.resolve_calls == ["스타벅스"]  # "교토 일본" 조회 없음
+        assert places.bias_calls == [(35.0116, 135.7681)]
+        assert places.radius_calls == [20000]
+        assert result.identified.place_id == "kyoto"
+
+    # 촬영 좌표가 있으면 실려 온 여행 도시 좌표보다 그것이 우선한다
+    def test_location_hint_outranks_supplied_trip_coordinates(self):
+        places = FakePlaces(resolved=resolved_place(lat=37.54, lng=127.05), nearby=[])
+        rec = make_recognizer(FakeLandmark(None), FakeVision(vision_id()), places)
+
+        rec.search(
+            req(latitude=37.54, longitude=127.05, trip_latitude=35.0116, trip_longitude=135.7681)
+        )
+
+        assert places.bias_calls == [(37.54, 127.05)]
+        assert places.radius_calls == [2000]
+
+    # 여행 도시 좌표가 반쪽만 오면 쓰지 않고 예전처럼 직접 조회한다
+    def test_half_trip_coordinates_fall_back_to_lookup(self):
+        places = FakePlaces(resolve_map={"교토 일본": self.KYOTO, "블루보틀": resolved_place()},
+                            nearby=[])
+        rec = make_recognizer(FakeLandmark(None), FakeVision(vision_id()), places)
+
+        rec.search(req(city="교토", country="일본", trip_latitude=35.0116))
+
+        assert places.resolve_calls == ["교토 일본", "블루보틀"]
+
+    # 여행 도시 prior 의 반경은 도시 규모다: 인접 도시(교토에서 43km 떨어진 오사카)의 지점이
+    # Places 첫 결과로 와도 여행 도시 안의 지점을 1순위로 둔다
+    def test_adjacent_city_branch_does_not_outrank_trip_city_branch(self):
+        places = FakePlaces(
+            resolve_map={
+                "교토 일본": self.KYOTO,
+                "스타벅스": [
+                    resolved_place(name="스타벅스 도톤보리", lat=34.6687, lng=135.5013,
+                                   city="오사카", pid="osaka"),
+                    resolved_place(name="스타벅스 교토 산조오하시", lat=35.0090, lng=135.7716,
+                                   city="교토", pid="kyoto"),
+                ],
+            },
+            nearby=[],
+        )
+        rec = make_recognizer(
+            FakeLandmark(None), FakeVision(vision_id(guess="스타벅스")), places
+        )
+
+        result = rec.search(req(city="교토", country="일본"))
+
+        assert [c.place_id for c in result.candidates] == ["kyoto", "osaka"]
+
+    # 여행 국가 표기가 Places 와 달라도(Japan ≠ 일본) 좌표로 비교하므로 영향이 없다
+    def test_trip_area_prior_does_not_depend_on_country_spelling(self):
+        places = FakePlaces(
+            resolve_map={
+                "오사카 Japan": resolved_place(name="오사카", lat=34.6937, lng=135.5023, pid="city"),
+                "이치란": [
+                    resolved_place(name="이치란 미드타운", lat=40.7527, lng=-73.9857,
+                                   country="미국", pid="ny"),
+                    resolved_place(name="이치란 시부야", lat=35.6610, lng=139.7010,
+                                   country="일본", pid="tokyo"),
+                    resolved_place(name="이치란 도톤보리", lat=34.6690, lng=135.5030,
+                                   country="일본", pid="osaka"),
+                ],
+            },
+            nearby=[],
+        )
+        rec = make_recognizer(
+            FakeLandmark(None), FakeVision(vision_id(guess="이치란")), places
+        )
+
+        result = rec.search(req(city="오사카", country="Japan"))
+
+        assert result.identified.place_id == "osaka"
+
+    # 촬영 좌표가 있으면 그것이 prior 다 — 여행지 좌표는 찾지 않는다 (호출 절약)
+    def test_location_hint_skips_trip_area_lookup(self):
+        places = FakePlaces(resolved=resolved_place(lat=35.0036, lng=135.7785), nearby=[])
+        rec = make_recognizer(FakeLandmark(None), FakeVision(vision_id()), places)
+
+        rec.search(req(latitude=35.0036, longitude=135.7785, city="교토", country="일본"))
+
+        assert places.resolve_calls == ["블루보틀"]
+        assert places.radius_calls == [2000]
+
+    # 랜드마크 앵커로 확정되면 여행지 좌표는 찾지 않는다
+    def test_landmark_anchor_skips_trip_area_lookup(self):
+        places = FakePlaces(resolved=resolved_place(), nearby=[])
+        rec = make_recognizer(
+            FakeLandmark(landmark_det(score=0.9)), FakeVision(vision_id()), places
+        )
+
+        rec.search(req(city="도쿄", country="일본"))
+
+        assert places.resolve_calls == ["센소지"]
+
+    # 여행 도시가 없으면(국가만) 좌표 prior 를 만들지 않는다 (국가는 검색어에 붙여 전달 — TestTripScopeInQuery)
+    def test_country_only_trip_has_no_area_prior(self):
+        places = FakePlaces(resolved=resolved_place(), nearby=[])
+        rec = make_recognizer(FakeLandmark(None), FakeVision(vision_id()), places)
+
+        rec.search(req(country="일본"))
+
+        assert places.resolve_calls == ["블루보틀 일본"]
+        assert places.bias_calls == [None]
+
+    # 여행지 좌표를 못 찾으면(결과 없음·오류) 국가 우선 정렬로 저하한다
+    def test_unresolvable_trip_city_falls_back_to_country_preference(self):
+        places = FakePlaces(
+            resolve_map={
+                "이치란": [
+                    resolved_place(name="이치란 뉴욕", country="미국", pid="us"),
+                    resolved_place(name="이치란 시부야", country="일본", pid="jp"),
+                ]
+            },
+            nearby=[],
+        )
+        rec = make_recognizer(
+            FakeLandmark(None), FakeVision(vision_id(guess="이치란")), places
+        )
+
+        result = rec.search(req(city="어디에도 없는 도시", country="일본"))
+
+        # 도시 좌표 조회 → 여행지를 붙인 이름 검색(결과 없음) → 이름만 검색
+        assert places.resolve_calls == [
+            "어디에도 없는 도시 일본",
+            "이치란 어디에도 없는 도시 일본",
+            "이치란",
+        ]
+        assert places.bias_calls == [None, None, None]
+        assert result.identified.place_id == "jp"
+
+    # 단서가 하나도 없으면 여행지 좌표도 찾지 않는다 (쓸 곳이 없는 호출)
+    def test_no_seed_means_no_trip_area_lookup(self):
+        places = FakePlaces(resolve_map={"교토 일본": self.KYOTO})
+        rec = make_recognizer(FakeLandmark(None), FakeVision(vision_id(guess=None)), places)
+
+        result = rec.search(req(city="교토", country="일본"))
+
+        assert places.resolve_calls == []
+        assert result.status is RecognitionStatus.FAILED
+
+
+# 좌표 prior 를 만들 수 없는 여행(국가만 입력했거나 도시 좌표를 못 찾음)은 여행지를 검색어에 붙여 먼저 묻는다.
+# 이름만 검색하면 Places 가 호출 서버의 IP 주변을 돌려준다 (해외 실사진 측정: 국가만 있는 여행에서
+# 43장 중 11장이 다른 나라·다른 도시의 동명 장소로 갔다)
+class TestTripScopeInQuery:
+    def test_country_only_trip_searches_name_with_country_first(self):
+        places = FakePlaces(
+            resolve_map={
+                "McDonald's 프랑스": resolved_place(name="McDonald's", country="프랑스", pid="fr"),
+                "McDonald's": resolved_place(name="맥도날드 만가대DT점", country="대한민국", pid="kr"),
+            },
+            nearby=[],
+        )
+        rec = make_recognizer(
+            FakeLandmark(None), FakeVision(vision_id(guess="McDonald's")), places
+        )
+
+        result = rec.search(req(country="프랑스"))
+
+        assert result.identified.place_id == "fr"
+        assert places.resolve_calls == ["McDonald's 프랑스"]
+        assert places.bias_calls == [None]
+
+    # 여행지를 붙인 검색에 결과가 없으면 이름만으로 다시 찾는다 (여행지 밖에서 찍은 사진일 수 있다)
+    def test_falls_back_to_plain_name_when_scoped_search_finds_nothing(self):
+        places = FakePlaces(
+            resolve_map={"도쿄타워": resolved_place(name="도쿄타워", pid="tower")}, nearby=[]
+        )
+        rec = make_recognizer(
+            FakeLandmark(None), FakeVision(vision_id(guess="도쿄타워")), places
+        )
+
+        result = rec.search(req(country="프랑스"))
+
+        assert result.identified.place_id == "tower"
+        assert places.resolve_calls == ["도쿄타워 프랑스", "도쿄타워"]
+
+    # 검색어에 붙인 국가는 범위 제한이 아니다: Places 가 그래도 다른 나라의 지점을 돌려줄 수 있다
+    # (실측: "Tim Hortons 캐나다" → 서울 지점). 걸러낼 근거가 없어 그대로 답하되,
+    # 후보의 나라는 여행 국가로 덮어쓰지 않고 Places 실제값을 보여 준다.
+    def test_scoped_result_outside_trip_country_shows_its_real_country(self):
+        places = FakePlaces(
+            resolve_map={
+                "Tim Hortons 캐나다": resolved_place(
+                    name="팀홀튼 신논현역점", city="서울", country="대한민국", pid="kr"
+                )
+            },
+            nearby=[],
+        )
+        rec = make_recognizer(
+            FakeLandmark(None), FakeVision(vision_id(guess="Tim Hortons")), places
+        )
+
+        result = rec.search(req(country="캐나다"))
+
+        assert result.identified.place_id == "kr"
+        assert result.identified.country == "대한민국"
+        assert places.resolve_calls == ["Tim Hortons 캐나다"]
+
+    # 좌표 prior 가 있으면 검색어를 건드리지 않는다 (위치는 locationBias 로 이미 전달된다)
+    @pytest.mark.parametrize(
+        "context",
+        [
+            {"latitude": 48.8530, "longitude": 2.3499},
+            {"city": "파리", "trip_latitude": 48.8566, "trip_longitude": 2.3522},
+        ],
+    )
+    def test_query_is_untouched_when_a_coordinate_prior_exists(self, context):
+        places = FakePlaces(resolved=resolved_place(lat=48.8530, lng=2.3499), nearby=[])
+        rec = make_recognizer(
+            FakeLandmark(None), FakeVision(vision_id(guess="Monoprix")), places
+        )
+
+        rec.search(req(country="프랑스", **context))
+
+        assert places.resolve_calls == ["Monoprix"]
+
+    # 랜드마크는 사진에서 나온 좌표를 앵커로 쓰므로 여행지를 붙이지 않는다
+    def test_landmark_seed_is_not_scoped(self):
+        places = FakePlaces(resolved=resolved_place(), nearby=[])
+        rec = make_recognizer(
+            FakeLandmark(landmark_det(name="Eiffel Tower", score=0.9)),
+            FakeVision(vision_id(guess=None)),
+            places,
+        )
+
+        rec.search(req(country="프랑스"))
+
+        assert places.resolve_calls == ["Eiffel Tower"]
+
+
+# 선택적인 Places 호출(여행지 좌표 조회·글자 폴백)은 시간 예산이 남았을 때만 한다
+class TestOptionalCallBudget:
+    def test_slow_request_skips_optional_places_calls(self, monkeypatch):
+        from types import SimpleNamespace
+
+        from ai.image_search.services import place_recognizer as module
+
+        ticks = iter([0.0] + [61.0] * 20)  # 시작 시각 이후로는 이미 예산을 넘긴 상태
+        monkeypatch.setattr(module, "time", SimpleNamespace(monotonic=lambda: next(ticks)))
+        places = FakePlaces(
+            resolve_map={"교토 일본": resolved_place(name="교토", pid="city")}, nearby=[]
+        )
+        rec = make_recognizer(
+            FakeLandmark(None),
+            FakeVision(vision_id(guess="없는 이름", texts=["% ARABICA"])),
+            places,
+        )
+
+        result = rec.search(req(city="교토", country="일본"))
+
+        # 필수 호출(이름 추정 검색)만 하고, 여행지 좌표 조회와 글자 폴백은 건너뛴다
+        assert places.resolve_calls == ["없는 이름"]
+        assert result.status is RecognitionStatus.FAILED
+
+
+    # 가까운 순으로 다시 묻는 것도 선택적 호출이다: 예산을 넘겼으면 처음 결과로 답한다
+    def test_slow_request_skips_distance_search(self, monkeypatch):
+        from types import SimpleNamespace
+
+        from ai.image_search.services import place_recognizer as module
+
+        ticks = iter([0.0] + [61.0] * 20)
+        monkeypatch.setattr(module, "time", SimpleNamespace(monotonic=lambda: next(ticks)))
+        other = resolved_place(name="세븐일레븐 옆 동네점", lat=35.7448, lng=139.8500, pid="other")
+        here = resolved_place(name="세븐일레븐", lat=35.7410, lng=139.8500, pid="here")
+        places = FakePlaces(
+            resolve_map={"세븐일레븐": [other]}, distance_map={"세븐일레븐": [here]}, nearby=[]
+        )
+        rec = make_recognizer(
+            FakeLandmark(None), FakeVision(vision_id(guess="세븐일레븐")), places
+        )
+
+        result = rec.search(req(latitude=35.7411, longitude=139.8500))
+
+        assert places.distance_rank_calls == [False]
+        assert result.identified.place_id == "other"
+
+# 동명 후보 개수는 배포 환경변수로 조절한다 (0 이면 끔)
+class TestAlternativesSetting:
+    def test_env_can_turn_namesakes_off(self, monkeypatch):
+        monkeypatch.setenv("IMAGE_SEARCH_MAX_ALTERNATIVES", "0")
+        matches = [resolved_place(name=f"스타벅스 {i}", pid=f"m{i}") for i in range(3)]
+        places = FakePlaces(
+            resolve_map={"스타벅스": matches},
+            nearby=[resolved_place(name="근처A", pid="na")],
+        )
+        rec = PlaceRecognizer(
+            landmark=FakeLandmark(None),
+            vision_llm=FakeVision(vision_id(guess="스타벅스")),
+            places=places,
+            image_loader=lambda request: b"fake-image-bytes",
+        )
+
+        result = rec.search(req())
+
+        assert [c.place_id for c in result.candidates] == ["m0", "na"]
+
+    def test_default_keeps_two_namesakes(self, monkeypatch):
+        monkeypatch.delenv("IMAGE_SEARCH_MAX_ALTERNATIVES", raising=False)
+
+        assert PlaceRecognizerConfig().max_alternatives == 2
+
+    def test_negative_value_is_treated_as_off(self, monkeypatch):
+        monkeypatch.setenv("IMAGE_SEARCH_MAX_ALTERNATIVES", "-3")
+
+        assert PlaceRecognizerConfig().max_alternatives == 0
 
 
 class TestProtocolConformance:

@@ -107,7 +107,7 @@ flowchart TB
     LMOUT["LandmarkDetection"]
     LLMOUT["VisionIdentification"]
     NAME["장소명(시드)"]
-    RESOLVE["PlacesProvider.resolve_place<br/>searchText"]
+    RESOLVE["PlacesProvider.search_text<br/>searchText (여러 건 · locationBias)"]
     NEARBY["PlacesProvider.search_nearby<br/>searchNearby"]
     RP["ResolvedPlace"]
 
@@ -126,7 +126,7 @@ flowchart TB
 → LandmarkProvider · VisionLlmProvider 각각 호출
 → 원신호(LandmarkDetection · VisionIdentification) 반환
 → (상위가) 장소명 시드 선택
-→ PlacesProvider.resolve_place 로 좌표 · place_id 확정
+→ PlacesProvider.search_text 로 좌표 · place_id 확정 (위치 prior 가 있으면 그 주변으로 편향)
 → PlacesProvider.search_nearby 로 근처 후보 채움
 ```
 
@@ -135,7 +135,7 @@ flowchart TB
 ```text
 LandmarkProvider.detect(image_bytes | image_url)   → LandmarkDetection | None
 VisionLlmProvider.identify(image_bytes, mime, note)→ VisionIdentification
-PlacesProvider.resolve_place(place_name)           → ResolvedPlace
+PlacesProvider.search_text(query, location_bias)   → list[ResolvedPlace]
 PlacesProvider.search_nearby(lat, lng, category)   → list[ResolvedPlace]
 ```
 
@@ -316,6 +316,8 @@ Gemini에게 보내는 `_INSTRUCTION`은 형식이 아니라 "무엇을" 판단�
 좌표 비관여        실제 좌표는 다음 단계(장소 검색)가 확정 — 위치를 맞히려 애쓰지 말 것
 visible_text 우선  간판·상호·메뉴를 보이는 그대로(일본어는 일본어로) — 번역·수정·추측 금지
 place_name_guess  그대로 지도 검색어가 되므로 근거 있을 때만, 불확실하면 null
+                  체인점 지점명은 간판 글자나 그 지점만의 외관으로 분명할 때만 — 아니면 브랜드명만
+                  (실측: 간판에 없는 지점명을 지어내 정답 지점이 후보에서 빠짐)
 category          주 피사체 하나만, ETC 도피 금지, 불확실함은 confidence 로 낮춤
 vibe_keywords     구체적 한국어 2~4개("좋다"·"예쁘다" 같은 막연한 말 금지)
 reason            결정적 단서가 무엇이었는지 한 문장
@@ -419,7 +421,7 @@ PlacesProvider(
 장소명 하나를 받아 가장 적합한 `ResolvedPlace` 하나를 확정합니다.
 
 ```text
-resolve_place(place_name, language_code="ko", region_code="JP") -> ResolvedPlace
+resolve_place(place_name, language_code="ko", region_code=None) -> ResolvedPlace
 
 → search_text(query=place_name, ..., max_result_count=1)
 → 결과 없음 → ValueError("Google Places 검색 결과가 없습니다: ...")
@@ -430,14 +432,21 @@ resolve_place(place_name, language_code="ko", region_code="JP") -> ResolvedPlace
 
 ```text
 {
-  "textQuery":       query,
-  "languageCode":    "ko",
-  "regionCode":      "JP",
-  "maxResultCount":  1
+  "textQuery":     query,
+  "languageCode":  "ko",
+  "pageSize":      max_result_count,
+  "regionCode":    region_code,          // 지정했을 때만
+  "locationBias":  {                     // location_bias 를 줬을 때만
+    "circle": {
+      "center": {"latitude": ..., "longitude": ...},
+      "radius":  bias_radius_m
+    }
+  },
+  "rankPreference": "DISTANCE"           // rank_by_distance=True 일 때만 (기본은 Places 관련도순)
 }
 ```
 
-기본 `language_code="ko"` · `region_code="JP"`는 현재 코드에 고정되어 있습니다(일본 여행 맥락 가정).
+`locationBias`는 범위 제한이 아니라 편향입니다. 범위 밖의 강한 이름 일치는 그대로 돌아옵니다. `PlaceRecognizer`는 `resolve_place`를 거치지 않고 `search_text`를 `max_result_count=5`로 직접 호출해 동명 후보까지 받습니다.
 
 ### search_nearby
 
@@ -447,7 +456,8 @@ resolve_place(place_name, language_code="ko", region_code="JP") -> ResolvedPlace
 search_nearby(latitude, longitude,
               category: PlaceCategory | None = None,
               radius_m=1500, max_result_count=5,
-              language_code="ko", region_code="JP") -> list[ResolvedPlace]
+              language_code="ko", region_code=None,
+              rank_by_distance=False) -> list[ResolvedPlace]
 ```
 
 요청 payload는 원형 범위 제한을 씁니다.
@@ -455,7 +465,8 @@ search_nearby(latitude, longitude,
 ```text
 {
   "languageCode":       "ko",
-  "regionCode":         "JP",
+  "regionCode":         region_code,     // 지정했을 때만
+  "rankPreference":     "DISTANCE",      // rank_by_distance=True 일 때만 (기본은 Places 인기순)
   "maxResultCount":     max_result_count,
   "locationRestriction": {
     "circle": {
@@ -523,7 +534,10 @@ X-Goog-FieldMask:
     places.rating
     places.userRatingCount
     places.primaryType
+    places.businessStatus
 ```
+
+`businessStatus`가 `CLOSED_PERMANENTLY`인 장소는 결과에서 뺍니다(이름 검색·근처 검색 공통). 임시 휴업과 상태 미상은 남깁니다. 실측에서 Places가 폐업한 매장을 돌려준 사례가 있었습니다.
 
 ### addressComponents 파싱
 
@@ -805,8 +819,8 @@ provider 테스트는 실제 네트워크·SDK 없이 결정론적으로 동작�
 - 자동 retry, backoff, circuit breaker가 없습니다.
 - 응답 cache가 없습니다.
 - Rate Limit 대응 정책이 없습니다.
-- `resolve_place` · `search_nearby`의 `language_code="ko"` · `region_code="JP"`가 코드에 고정되어 있습니다.
-- 촬영 좌표 등 위치 힌트를 Places의 `locationBias`로 활용하지 않습니다.
+- 응답 언어는 `language_code="ko"`로 고정되어 있습니다. 지역 코드(`region_code`)는 기본값이 미지정이라 특정 국가로 고정하지 않습니다(전 세계 검색).
+- `search_text`의 `location_bias`는 원형 편향(중심 + 반경)만 지원합니다. `PlaceRecognizer`는 `resolve_place`가 아니라 `search_text`(여러 건)와 `search_nearby(rank_by_distance=...)`를 직접 호출하며, `resolve_place`는 진단 CLI에서만 씁니다.
 - `CATEGORY_INCLUDED_TYPES` 중 여러 카테고리가 `tourist_attraction`으로 근사되며, 실제 호출 검증(CLI) 단계에서 조정할 여지로 남겨 두었습니다.
 - Cloud Vision의 내부 `error` 객체는 `InvalidProviderResponseError` 메시지에 그대로 실립니다(HTTP 4xx/5xx 본문은 `ProviderHttpError`에 포함하지 않음).
 - Gemini 모델(`gemini-3.6-flash`)과 캐스케이드는 실 API(Modal) 검증으로 확인되었으며(실사진 end-to-end 성공), `confidence` 캘리브레이션은 이후 추가 튜닝 여지가 남아 있습니다.

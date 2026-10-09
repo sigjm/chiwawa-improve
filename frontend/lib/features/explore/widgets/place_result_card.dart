@@ -85,25 +85,27 @@ class PlaceResultCard extends StatelessWidget {
                             ),
                           ),
                         ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 5,
-                          ),
-                          decoration: BoxDecoration(
-                            color: ChiwawaColors.secondary,
-                            borderRadius:
-                                BorderRadius.circular(ChiwawaRadii.round),
-                          ),
-                          child: Text(
-                            result.category,
-                            style: const TextStyle(
-                              color: ChiwawaColors.primary,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
+                        if (result.category.trim().isNotEmpty)
+                          Container(
+                            key: const ValueKey('place-result-category'),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 5,
+                            ),
+                            decoration: BoxDecoration(
+                              color: ChiwawaColors.secondary,
+                              borderRadius:
+                                  BorderRadius.circular(ChiwawaRadii.round),
+                            ),
+                            child: Text(
+                              result.category,
+                              style: const TextStyle(
+                                color: ChiwawaColors.primary,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
                           ),
-                        ),
                       ],
                     ),
                     const SizedBox(height: 8),
@@ -114,6 +116,19 @@ class PlaceResultCard extends StatelessWidget {
                         fontSize: 13,
                       ),
                     ),
+                    if (result.reason.trim().isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        result.reason,
+                        key: const ValueKey('place-result-reason'),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: ChiwawaColors.textMuted,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
                     if (result.confidence != null) ...[
                       const SizedBox(height: 8),
                       Row(
