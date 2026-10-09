@@ -135,7 +135,7 @@ class PlaceRecognizer:
     _MAX_TEXT_QUERIES = 2
     # 선택적인 Places 호출(여행지 좌표 조회·글자 폴백)을 시작해도 되는 경과 시간(초).
     # 외부 호출이 전부 timeout 나도 Modal 한도(120s) 안에 끝내기 위함이다: 이 시각 이후로는
-    # 필수 호출(이름 검색 2회 + 근처 1회, 각 10s)만 남아 최악 100s — 이 기능을 넣기 전과 같다.
+    # 직전에 시작한 선택적 호출 1회와 필수 호출(이름 검색 2회 + 근처 1회)만 남는다 (각 10s, 최악 100s).
     _OPTIONAL_BUDGET_S = 60
 
     # provider 3종을 Protocol 로 주입 (테스트에서 가짜 provider, 실제 사용 시 구체 provider)
@@ -265,6 +265,12 @@ class PlaceRecognizer:
             return
         prior = self._soft_prior(request, hint, started)
         if name_seed is not None:
+            # 좌표 prior 를 못 만든 여행(국가만 입력했거나 도시 좌표를 못 찾음)은 여행지를 검색어에
+            # 붙여 먼저 묻는다: 이름만 검색하면 Places 가 호출 서버의 IP 주변 동명 장소를 돌려준다.
+            # 결과가 없으면(여행지 밖에서 찍은 사진) 아래의 이름만 검색으로 넘어간다.
+            scope = self._scope(request)
+            if prior is None and scope and not self._out_of_time(started):
+                yield _Seed(f"{name_seed[0]} {scope}", *name_seed[1:], None)
             yield _Seed(*name_seed, prior)
         for text_seed in text_seeds:
             if self._out_of_time(started):

@@ -80,7 +80,7 @@ class FakePlaces:
         return results[0]
 
     def search_nearby(self, latitude, longitude, category=None, radius_m=1500,
-                      max_result_count=5, language_code="ko", region_code="JP",
+                      max_result_count=5, language_code="ko", region_code=None,
                       rank_by_distance=False):
         self.nearby_calls.append(
             {"lat": latitude, "lng": longitude,

@@ -421,7 +421,7 @@ PlacesProvider(
 장소명 하나를 받아 가장 적합한 `ResolvedPlace` 하나를 확정합니다.
 
 ```text
-resolve_place(place_name, language_code="ko", region_code="JP") -> ResolvedPlace
+resolve_place(place_name, language_code="ko", region_code=None) -> ResolvedPlace
 
 → search_text(query=place_name, ..., max_result_count=1)
 → 결과 없음 → ValueError("Google Places 검색 결과가 없습니다: ...")
@@ -819,7 +819,7 @@ provider 테스트는 실제 네트워크·SDK 없이 결정론적으로 동작�
 - 자동 retry, backoff, circuit breaker가 없습니다.
 - 응답 cache가 없습니다.
 - Rate Limit 대응 정책이 없습니다.
-- `resolve_place` · `search_nearby`의 `language_code="ko"` · `region_code="JP"`가 코드에 고정되어 있습니다.
+- 응답 언어는 `language_code="ko"`로 고정되어 있습니다. 지역 코드(`region_code`)는 기본값이 미지정이라 특정 국가로 고정하지 않습니다(전 세계 검색).
 - `search_text`의 `location_bias`는 원형 편향(중심 + 반경)만 지원합니다. `PlaceRecognizer`는 `resolve_place`가 아니라 `search_text`(여러 건)와 `search_nearby(rank_by_distance=...)`를 직접 호출하며, `resolve_place`는 진단 CLI에서만 씁니다.
 - `CATEGORY_INCLUDED_TYPES` 중 여러 카테고리가 `tourist_attraction`으로 근사되며, 실제 호출 검증(CLI) 단계에서 조정할 여지로 남겨 두었습니다.
 - Cloud Vision의 내부 `error` 객체는 `InvalidProviderResponseError` 메시지에 그대로 실립니다(HTTP 4xx/5xx 본문은 `ProviderHttpError`에 포함하지 않음).
