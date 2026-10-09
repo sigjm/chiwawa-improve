@@ -1,619 +1,336 @@
 # 🐶 치와와 Chiwawa
 
 <p align="center">
-  <img src="assets/images/project_cover.png" width="100%" alt="치와와 프로젝트 커버" />
+  <img src="assets/images/project_cover_global.png" width="100%" alt="치와와 글로벌 자유여행 플래너" />
 </p>
 
 <h3 align="center">복잡한 건 치와 두고 일단 와</h3>
 
 <p align="center">
-  사진 속 여행지를 찾고, 가고 싶은 장소의 동선을 설계하고,<br>
-  여행 중 남는 시간을 활용하며, 여행 후 기록까지 정리하는<br>
-  <strong>일본 자유여행 통합 플래너</strong>
+  사진 속 여행지를 실제 장소로 확정하고, 이동 동선을 최적화하며,<br>
+  남는 시간의 일정과 여행 후 기록까지 연결하는<br>
+  <strong>AI 기반 글로벌 자유여행 플래너</strong>
 </p>
 
 <p align="center">
-  <strong>📸 사진 기반 장소 탐색 · 🗺️ 경로 최적화 · ⏰ 빈 시간 추천 · 🌁 Memorial</strong>
+  <a href="https://github.com/hekim-cse/chiwawa/actions/workflows/ai-image-search-ci.yml"><img src="https://github.com/hekim-cse/chiwawa/actions/workflows/ai-image-search-ci.yml/badge.svg" alt="AI Image Search CI" /></a>
+  <a href="https://github.com/hekim-cse/chiwawa/actions/workflows/ai-route-planner-ci.yml"><img src="https://github.com/hekim-cse/chiwawa/actions/workflows/ai-route-planner-ci.yml/badge.svg" alt="AI Route Planner CI" /></a>
+  <a href="https://github.com/hekim-cse/chiwawa/actions/workflows/modal-image-search-deploy.yml"><img src="https://github.com/hekim-cse/chiwawa/actions/workflows/modal-image-search-deploy.yml/badge.svg" alt="Modal Image Search Deploy" /></a>
+  <a href="https://github.com/hekim-cse/chiwawa/actions/workflows/modal-route-planner-deploy.yml"><img src="https://github.com/hekim-cse/chiwawa/actions/workflows/modal-route-planner-deploy.yml/badge.svg" alt="Modal Route Planner Deploy" /></a>
 </p>
 
+<p align="center">
+  <strong>Flutter · FastAPI · Modal · Google Cloud Vision · Gemini · Google Places · Google Routes</strong>
+</p>
+
+---
+
+## 📑 목차
+
+1. [사용자 경험](#user-experience)
+2. [핵심 기술 문제와 해결](#technical-solutions)
+3. [시스템 아키텍처](#system-architecture)
+4. [구현 및 배포 범위](#implementation-and-deployment)
+5. [테스트 및 품질 관리](#quality-assurance)
+6. [기술 스택](#tech-stack)
+7. [프로젝트 구조](#project-structure)
+8. [실행 방법](#getting-started)
+9. [주요 API](#main-api)
+10. [협업 방식](#collaboration)
+
 <br>
 
-## 목차
+<a id="user-experience"></a>
 
-1. [프로젝트 소개](#1-프로젝트-소개)
-2. [문제 정의와 차별점](#2-문제-정의와-차별점)
-3. [현재 구현 범위](#3-현재-구현-범위)
-4. [핵심 기능](#4-핵심-기능)
-5. [사용자 서비스 흐름](#5-사용자-서비스-흐름)
-6. [전체 시스템 아키텍처](#6-전체-시스템-아키텍처)
-7. [파트별 기술 스택](#7-파트별-기술-스택)
-8. [프로젝트 구조](#8-프로젝트-구조)
-9. [파트별 상세 문서](#9-파트별-상세-문서)
-10. [기본 실행 방법](#10-기본-실행-방법)
-11. [주요 API와 연동 흐름](#11-주요-api와-연동-흐름)
-12. [테스트와 품질 관리](#12-테스트와-품질-관리)
-13. [협업 방식](#13-협업-방식)
-14. [현재 제약과 확장 방향](#14-현재-제약과-확장-방향)
-15. [개선 기록](#15-개선-기록)
+## ✨ 사용자 경험
+
+<p align="center">
+  <img src="assets/images/project_user_flow_global.png" width="100%" alt="치와와 사용자 서비스 흐름" />
+</p>
+
+### 1. 사진으로 장소 탐색
+
+- 이미지 형식과 MIME 타입 검증
+- Cloud Vision 랜드마크 감지
+- Gemini 기반 장소명·카테고리 추론
+- Google Places 기반 Place ID·주소·좌표·평점 확정
+- 동일 Place ID 중복 제거와 주변 장소 후보 제공
+- 분석된 장소를 기존 일정 후보와 같은 계약으로 저장
+
+### 2. AI 경로 최적화
+
+- 출발지와 도착지의 장소·시각 고정
+- 사진·검색·추천으로 추가한 장소 자동 병합
+- 날짜별 장소 배정과 방문 순서 계산
+- 도보·자동차·대중교통별 이동시간 비교
+- Route Option과 도착·출발·체류 Timeline 생성
+- 확정 결과를 SQLite에 저장하고 홈 일정과 동기화
+
+### 3. 빈 시간 추천
+
+- 최적화 결과의 마지막 방문지부터 고정 도착지까지 남은 시간 계산
+- Route Geometry 주변의 카테고리별 장소 검색
+- 후보 방문에 필요한 이동·체류·우회시간 평가
+- 사용자가 정한 도착시각을 넘지 않는 후보만 반환
+- 관광지·맛집·카페·자연·쇼핑 등 카테고리별 다중 결과 제공
+- 추천 장소의 일정 후보 추가·삭제 상태 즉시 반영
+
+### 4. 여행 기록 Memorial
+
+- 회원별 사진 원본 파일과 촬영시각·위치 메타데이터 저장
+- 날짜별 사진 그리드와 Timeline 구성
+- 위치 보정과 Paw Map 동선 시각화
+- 여행 요약과 공유 UI 제공
 
 <br>
 
-## 1. 프로젝트 소개
+<a id="technical-solutions"></a>
 
-**치와와**는 일본 자유여행을 준비하는 사용자가 여행지를 탐색하고, 방문 일정을 설계하고, 여행 중 일정을 확인하고, 여행 후 사진 기록까지 관리할 수 있도록 만든 App + Web 기반 여행 플래너입니다.
+## 🧩 핵심 기술 문제와 해결
+
+### AI 추론과 장소 사실을 분리했습니다
+
+사진 모델이 생성한 장소명과 좌표를 그대로 일정에 사용하면 환각이 실제 동선에
+전파될 수 있습니다. 치와와는 AI가 장소 후보를 추론하게 하되, 일정에 사용하는
+Place ID·좌표·주소·평점은 Google Places 응답으로 다시 확정합니다.
 
 ```text
-사진 속 장소 탐색
-→ 방문 희망 장소 저장
-→ 날짜별 일정과 방문 순서 생성
-→ 이동수단별 경로 확인
-→ 여행 중 오늘 일정과 빈 시간 추천
-→ 여행 후 사진 기반 Memorial 기록
-```
-
-치와와는 단순한 관광지 검색 서비스가 아닙니다.
-
-사진에서 시작한 여행 관심사를 실제 장소 정보로 연결하고, 시간과 이동비용을 고려한 일정으로 구성하며, 여행이 끝난 뒤에도 사진과 방문 흐름을 다시 볼 수 있는 하나의 여행 경험을 지향합니다.
-
-> 현재 저장소는 서비스 전체 흐름을 검증하기 위한 개발 프로토타입입니다. 기능별 실제 연동 수준은 [현재 구현 범위](#3-현재-구현-범위)에서 구분합니다.
-
-<br>
-
-## 2. 문제 정의와 차별점
-
-### 해결하고자 한 문제
-
-| 문제 상황 | 사용자 불편 |
-|---|---|
-| 📸 사진 속 장소 탐색 | SNS나 사진에서 본 장소의 정확한 이름과 위치를 찾기 어려움 |
-| 🗺️ 여행 동선 설계 | 여러 장소의 이동시간과 방문 순서를 직접 비교해야 함 |
-| 🚆 이동수단 비교 | 도보, 자동차, 대중교통에 따라 일정이 어떻게 달라지는지 판단하기 어려움 |
-| ⏰ 빈 시간 활용 | 일정 사이에 시간이 남아도 이동과 체류가 가능한 장소를 다시 찾기 어려움 |
-| 🌁 여행 기록 정리 | 여행 후 사진과 방문 장소를 날짜와 동선에 맞게 정리하는 데 시간이 오래 걸림 |
-| 🔄 서비스 분산 | 장소 탐색, 일정 작성, 이동 경로와 기록 관리가 서로 다른 서비스에 나뉘어 있음 |
-
-### 치와와의 접근
-
-| 일반적인 여행 서비스 | 치와와 |
-|---|---|
-| 장소명 텍스트 검색 중심 | 사진을 분석해 장소 후보를 생성하고 Google Places로 실제 장소 확정 |
-| 사용자가 방문 순서를 직접 조정 | 날짜 배정과 방문 순서를 정확 최적화 모듈로 계산 |
-| 하나의 이동수단 또는 단순 거리 중심 | 도보·자동차·대중교통별 Route Option과 Timeline 생성 |
-| 주변 인기 장소를 일괄 추천 | 이동 구간, 추가 이동시간, 거리와 체류시간을 함께 평가 |
-| 사진을 개별 파일로만 관리 | 촬영시각과 위치 메타데이터를 기반으로 날짜별 Memorial 구성 |
-| AI 결과를 그대로 사실로 사용 | 사진 이해 결과와 장소 사실 정보를 분리하고 Google Places로 재확정 |
-
-### 핵심 차별점
-
-#### 1. 사진 추정과 장소 사실의 분리
-
-```text
-Google Cloud Vision / Gemini
-→ 사진 내용과 장소명 추정
+Cloud Vision + Gemini
+→ 장소 후보와 근거 추론
 
 Google Places
-→ Place ID, 좌표, 도시, 국가와 평점 확정
+→ 존재하는 장소인지 검증
+→ Place ID·좌표·주소 확정
 ```
 
-AI가 추정한 좌표를 그대로 사용하지 않고 Google Places에서 실제 장소를 다시 확인합니다.
+### 제한 범위에서는 정확해를 계산합니다
 
-#### 2. 제한 범위 안에서의 정확 경로 계산
+Route Planner는 임의 휴리스틱으로 결과를 바꾸지 않고, 기본 POI 12개 범위에서
+부분집합 동적 계획법을 사용합니다.
 
-Route Planner는 다음 계산 방식을 사용합니다.
+- Held-Karp DP로 날짜 내부 방문 순서 계산
+- Partition DP로 전체 장소의 날짜별 배정
+- 필수 방문 여부와 장소 우선순위 반영
+- 미배정 장소 수와 이동시간을 함께 고려한 사전식 목적함수
+- 지원 범위를 넘으면 조용히 근사값을 반환하지 않고 명시적으로 실패
 
-- Held-Karp 부분집합 동적 계획법 기반 방문 순서 계산
-- 부분집합 기반 정확 일자 배정
-- 필수 방문 여부와 우선순위 반영
-- 미배정 장소 수와 이동시간을 고려한 사전식 목적함수
-- 기본 POI 제한 초과 시 휴리스틱으로 자동 전환하지 않고 명시적 실패
+### 빈 시간을 경로 삽입 문제로 정의했습니다
 
-#### 3. 빈 시간을 경로 삽입 문제로 평가
-
-Free Time Recommender는 후보 장소 자체만 평가하지 않습니다.
+후보 장소가 단순히 가깝다는 이유만으로 추천하지 않습니다.
 
 ```text
-이전 장소
-→ 추천 후보 이동
-→ 후보 장소 체류
-→ 다음 장소 이동
+현재 장소
+→ 추천 후보까지 이동
+→ 후보 체류
+→ 고정 도착지까지 이동
+→ 사용자 도착시각 안에 들어오는지 검증
 ```
 
-추가 이동시간, 거리, 체류시간과 일정 종료시각을 함께 계산해 실제 일정에 삽입할 수 있는 후보인지 판단합니다.
+이 방식으로 경로 최적화 결과는 그대로 유지하면서, 남은 시간 안에 추가 가능한
+장소를 카테고리별로 제안합니다.
+
+### 확정 상태를 서버의 단일 기준으로 유지했습니다
+
+사진이나 빈 시간 추천에서 추가한 장소가 화면에만 존재하면 재최적화·일정 확정·홈
+조회 과정에서 사라질 수 있습니다. 치와와는 모든 장소를 `wanted place` 계약으로
+정규화하고, 확정 경로와 생성된 일정 항목을 SQLite에 함께 저장합니다.
+
+- 여행과 등록 장소 영속화
+- 확정 Route Option과 Timeline 영속화
+- 같은 결과를 다시 확정해도 중복 생성되지 않는 멱등 처리
+- 확정 후 Riverpod Provider 무효화로 홈·일정 화면 동기화
 
 <br>
 
-## 3. 현재 구현 범위
+<a id="system-architecture"></a>
 
-치와와는 파트별 구현 수준과 전체 서비스 연결 수준을 구분합니다.
+## 🏗️ 시스템 아키텍처
 
-| 영역 | 상태 | 현재 범위 |
+<p align="center">
+  <img src="assets/images/project_architecture_final.png" width="100%" alt="치와와 전체 시스템 아키텍처" />
+</p>
+
+### 실제 연동 경계
+
+```text
+Flutter App / Web
+↔ FastAPI Backend
+↔ SQLite
+
+FastAPI
+→ Modal Image Search
+   → Cloud Vision
+   → Gemini
+   → Google Places
+
+FastAPI
+→ Modal Route Planner
+   → Places에서 확정된 좌표 입력
+   → Google Routes 이동시간 행렬
+
+Route Planner
+→ Free Time Recommender
+   → Google Places 후보 검색
+   → Google Routes 우회 이동 계산
+
+FastAPI Google OAuth + JWT
+↔ Google OAuth
+```
+
+Route Planner 저장소에는 장소명으로 좌표를 만드는 개발 스크립트용 Places Provider도
+있지만, 현재 Modal 운영 경로는 앞단에서 확정된 좌표를 입력받아 Google Routes를
+직접 호출합니다.
+
+<br>
+
+<a id="implementation-and-deployment"></a>
+
+## 🚀 구현 및 배포 범위
+
+| 영역 | 구현 내용 |
+|---|---|
+| Frontend | Flutter App·Web, Riverpod 상태 관리, Dio API Repository |
+| Backend | FastAPI, Pydantic 계약, Google OAuth·JWT, SQLite 상태 저장 |
+| Image Search | Cloud Vision·Gemini 분석, Places 사실 확정, Modal 배포 |
+| Route Planner | 정확 일자 배정, 방문 순서, 이동수단별 Route Option·Timeline |
+| Free Time Recommender | 경로 주변 검색, 후보 우회 지표, 도착시간 기반 삽입 검증 |
+| Memorial | 사진 파일·메타데이터 저장, 날짜별 기록, Paw Map·Timeline UI |
+| CI/CD | GitHub Actions 회귀 테스트, 평가 Artifact, Modal 자동 배포 |
+
+### 배포 자동화
+
+```text
+main 반영
+→ GitHub Actions 변경 경로 감지
+→ AI 단위·계약·E2E 회귀 테스트
+→ Modal Image Search 배포
+→ Modal Route Planner·Free Time Recommender 배포
+```
+
+현재 저장소에서 자동 배포가 확인되는 범위는 Modal AI 서비스입니다. FastAPI와
+Flutter는 Docker·로컬 실행 구성을 제공하며, 운영 호스팅 주소는 저장소에 포함하지
+않습니다.
+
+<br>
+
+<a id="quality-assurance"></a>
+
+## ✅ 테스트 및 품질 관리
+
+Frontend, Backend와 세 AI 모듈을 파트별 정적 검사, 자동 테스트와 빌드로 검증합니다.
+Pull Request에서는 변경 영역의 회귀 테스트를 실행하고, `main` 반영 후에는 검증을
+통과한 AI 서비스를 Modal에 배포합니다.
+
+| 영역 | 검증 범위 |
+|---|---|
+| Frontend | 정적 분석, 단위·Widget 테스트, Web Build |
+| Backend | Format, Lint, Type Check, API·Service 테스트, Wheel Build |
+| Image Search | 사진 입력 검증, Provider 응답 계약, 장소 확정 흐름 |
+| Route Planner | 일정 완전성, 날짜 배정, 방문 순서, 결정성, E2E Benchmark |
+| Free Time Recommender | 시간 제약, 후보 삽입, 우회 이동시간, 카테고리별 추천 |
+| CI/CD | Pull Request 회귀 테스트, `main` 반영 후 Modal 자동 배포 |
+
+Route Planner의 Fixture, 정확성·완전성·결정성 평가와 Benchmark 결과는
+[`ai/route_planner/README.md`](ai/route_planner/README.md)에서 별도로 관리합니다.
+
+### 로컬 검증 명령
+
+```bash
+# Frontend
+cd frontend
+flutter analyze
+flutter test
+flutter build web
+
+# Backend
+cd backend
+uv run ruff format --check .
+uv run ruff check .
+uv run basedpyright
+uv run pytest
+uv build --wheel
+
+# AI
+cd ..
+PYTHONPATH=. pytest ai/image_search/tests
+PYTHONPATH=. pytest ai/route_planner/tests
+PYTHONPATH=. pytest ai/free_time_recommender/tests
+```
+
+<br>
+
+<a id="tech-stack"></a>
+
+## 🛠️ 기술 스택
+
+| 구분 | 기술 | 사용 목적 |
 |---|---|---|
-| 📱 Flutter 화면 | 구현 | 홈, 일정, 여행 목록, 사진 탐색, Memorial, 마이페이지 |
-| ⚙️ Backend API | 구현 | 여행, 희망 장소, 한국어 전 세계 장소 검색, 일정, 여행 중 보조 기능, Memorial, 인증 |
-| 🔐 Google OAuth + JWT | 구현 | Google 로그인, JWT 발급과 인증 사용자 조회 |
-| 📸 사진 기반 장소 검색 | 실제 연동 | Backend에서 `ai/image_search` 모듈 호출 |
-| 🗺️ Route Planner | 구현·테스트 | 정확 일자 배정, 방문 순서, 이동수단별 Route Option과 Timeline |
-| ⏰ Free Time Recommender | 구현·테스트 | Route Leg 주변 후보 검색과 일정 삽입 가능성 평가 |
-| 🔌 Backend와 Route Planner 통합 | 실제 연동 | `/route-optimizations`에서 Modal `plan_trip` 호출, 실제 Route Option과 Timeline 반환 |
-| 🔌 Backend와 Free Time Recommender 통합 | 실제 연동 | 경로 최적화의 검증된 추천 그룹을 저장하고 빈 시간 추천 Endpoint에서 반환 |
-| 🌁 Memorial | 구현 | 사진 메타데이터 저장, 날짜별 기록 생성과 지도·타임라인 UI |
-| 💾 저장소 | 혼합 | 여행 프로토타입은 메모리, Google 사용자와 Memorial 메타데이터는 SQLite |
-| 🚀 배포 | 부분 구현 | Dockerfile, GitHub Actions와 Modal AI 배포 Workflow |
-
-### 실제 외부 서비스 연동
-
-```text
-Google OAuth
-Google Cloud Vision
-Gemini
-Google Places
-Google Routes
-Modal
-```
-
-Google Routes 기반 Route Planner와 Free Time Recommender는 독립 AI 모듈로 구현되어 있습니다.
-
-현재 Backend의 기본 일정 생성과 여행 중 추천 Endpoint 전체가 해당 모듈을 사용하는 상태는 아닙니다.
+| Frontend | Flutter, Dart | App·Web 공통 사용자 인터페이스 |
+| State | Riverpod | 인증·여행·일정·사진·Memorial 상태 동기화 |
+| API Client | Dio | FastAPI 통신, JWT Header, 장기 AI 요청 처리 |
+| Backend | FastAPI, Pydantic v2 | REST API와 요청·응답 계약 검증 |
+| Persistence | SQLite | 여행·등록 장소·확정 일정·경로와 사용자 메타데이터 저장 |
+| Authentication | Google OAuth, JWT | Google 로그인과 사용자 세션 |
+| Image AI | Cloud Vision, Gemini | 랜드마크 감지와 장소 후보 추론 |
+| Place Data | Google Places | Place ID·좌표·주소 확정과 주변 후보 검색 |
+| Route Data | Google Routes | 이동수단별 이동시간·경로 Geometry 계산 |
+| Optimization | Held-Karp DP, Partition DP | 방문 순서와 날짜 배정의 정확 계산 |
+| Serverless | Modal | Image Search·Route Planner 실행 환경 |
+| CI/CD | GitHub Actions | 회귀 테스트, 평가 결과와 Modal 자동 배포 |
 
 <br>
 
-## 4. 핵심 기능
+<a id="project-structure"></a>
 
-### 📸 사진 기반 여행지 탐색
-
-사용자가 사진을 선택하면 Backend가 Image Search 모듈을 호출해 장소 후보를 생성합니다.
-
-```text
-사진 업로드
-→ 이미지 형식 확인
-→ Cloud Vision 랜드마크 감지
-→ Gemini 장소 추정
-→ 신뢰할 장소명 선택
-→ Google Places로 실제 장소 확정
-→ 주변 장소 검색
-→ 일정 후보로 저장
-```
-
-주요 기능:
-
-- 이미지 파일 또는 URL 입력
-- 이미지 MIME 타입 감지
-- Google Cloud Vision 랜드마크 분석
-- Gemini 기반 장소명과 카테고리 추정
-- Google Places 기반 Place ID와 실제 좌표 확정
-- 식별된 장소 주변 후보 검색
-- 장소 ID 기반 중복 제거
-- 성공, 부분 성공과 실패 상태 구분
-- 일부 Provider 실패 시 가능한 경로로 계속 처리
-- Frontend 장소 결과 확인 및 보정 UI
-- Modal 기반 Image Search 배포 구조
-
-### 🗺️ 여행 일정과 경로 최적화
-
-Route Planner는 여행 기간, 날짜별 시간창, 방문 희망 장소와 이동수단을 입력받아 Route Option을 생성합니다.
-
-주요 기능:
-
-- 전체 장소의 날짜별 배정
-- 필수 방문 장소 우선 반영
-- 장소 우선순위별 미배정 최소화
-- 날짜별 방문 순서 계산
-- 도보, 자동차, 대중교통 옵션 생성
-- Route Leg별 이동시간 계산
-- 방문과 이동이 이어지는 Timeline 생성
-- 결과 평가와 E2E Benchmark 지원
-- Modal 기반 Route Planner API 배포 구조
-
-정확 계산의 기본 POI 제한은 12개이며, 제한을 초과하면 근사 경로로 자동 전환하지 않습니다.
-
-### ⏰ 빈 시간대 장소 추천
-
-Free Time Recommender는 이미 생성된 Route Option을 직접 변경하지 않고, 각 이동 구간에 추가할 수 있는 후보를 별도 결과로 제공합니다.
-
-```text
-Route Option
-→ Route Leg별 polyline 생성
-→ 경로 주변 장소 검색
-→ 전체 Route에서 Place ID 중복 제거
-→ 후보 경유 이동 지표 계산
-→ 시간·거리·체류 정책 평가
-→ 카테고리별 추천 결과 생성
-```
-
-검색 범위:
-
-- 관광명소
-- 카페
-- 문화·전시 공간
-- 공원·정원
-- 음식점
-
-후보는 자신이 발견된 Route Leg의 이전 장소와 다음 장소 사이에 삽입되는 조건으로 평가됩니다.
-
-### 🌁 Memorial 여행 기록
-
-여행 후 사진과 위치 메타데이터를 날짜별 기록으로 구성합니다.
-
-Backend 기능:
-
-- 인증 사용자별 Memorial 사진 메타데이터 저장
-- EXIF 촬영시각과 위치 처리
-- 사진 위치 수정
-- 날짜별 여행 기록 생성
-- 자신의 사진만 조회·수정·삭제하도록 JWT 보호
-- 로그인 없는 시연을 위한 Memorial Demo 데이터 지원
-
-Frontend 기능:
-
-- 월별 여행 선택
-- 날짜별 사진 그리드
-- 사진 위치 수정
-- 여행 요약 카드
-- 시간순 Paw Map
-- 사진과 경로 미리보기
-- 공유와 내보내기 UI
-
-현재 Backend는 사진 원본 파일이나 S3 경로를 저장하지 않고 사진 메타데이터를 중심으로 관리합니다.
-
-### 🔐 인증과 사용자
-
-- Google OAuth 로그인 URL 생성
-- 일회성 OAuth `state` 검증
-- HttpOnly 쿠키와 OAuth `state` 결합
-- Google Callback 처리
-- HS256 JWT 발급
-- JWT 기반 현재 사용자 조회
-- Flutter Web Redirect와 앱 Deep Link 구조
-- 게스트 둘러보기 UI
-
-현재 일부 여행 프로토타입 API는 공개 상태입니다.
-
-인증이 필요한 주요 기능은 현재 사용자 조회, 사진 장소 검색과 회원 단위 Memorial API입니다.
-
-<br>
-
-## 5. 사용자 서비스 흐름
-
-<p align="center">
-  <img src="assets/images/project_user_flow.png" width="100%" alt="치와와 사용자 서비스 흐름" />
-</p>
-
-```mermaid
-flowchart LR
-    A[여행 생성] --> B[방문 희망 장소 등록]
-    B --> C[사진으로 장소 탐색]
-    C --> D[일정 후보에 장소 저장]
-    D --> E[AI 일정 생성 요청]
-    E --> F[경로와 Timeline 확인]
-    F --> G[일정 확정]
-    G --> H[오늘 일정 확인]
-    H --> I[빈 시간·주변 장소 추천]
-    I --> J[여행 사진 기록]
-    J --> K[Memorial 생성]
-```
-
-### 1. 여행 생성
-
-사용자가 여행 기본 정보를 입력합니다.
-
-- 여행명
-- 국가와 도시
-- 시작일과 종료일
-- 날짜별 시작·종료 시간
-- 여행 시간대
-
-### 2. 장소 탐색과 등록
-
-- 장소명으로 방문 희망 장소 등록
-- 사진을 업로드해 장소 후보 검색
-- 검색된 장소를 일정 후보로 저장
-- 필요하면 사용자가 장소 결과 수정
-
-### 3. 일정 생성
-
-현재 Backend API는 프로토타입용 모의 일정 초안을 생성합니다.
-
-별도의 Route Planner 모듈에는 Google Routes 이동시간과 정확 Solver를 이용한 일정 계산이 구현되어 있습니다.
-
-### 4. 일정 확인과 확정
-
-- 날짜별 방문 순서
-- 장소 체류시간
-- 이동시간
-- 이동수단
-- 예상 종료시각
-- 같은 계획을 다시 확정해도 중복 생성되지 않는 멱등 처리
-
-### 5. 여행 중 보조 기능
-
-- 오늘 일정 확인
-- 빈 시간 활동 추천
-- 현재 위치 주변 추천
-- 지연 발생 시 재계획
-
-Backend는 경로 최적화가 반환한 실제 추천 그룹을 보존하고, 가장 최근에 최적화한
-일정의 삽입 가능 후보를 반환합니다. 경로 최적화 없이 호출하면 임시 결과를 만들지
-않고 명시적인 오류를 반환합니다.
-
-### 6. Memorial
-
-- 여행 사진 메타데이터 등록
-- 촬영시각과 장소 정리
-- 날짜별 사진 묶음 생성
-- 지도와 시간순 동선 표시
-- 위치 보정과 기록 공유 UI
-
-<br>
-
-## 6. 전체 시스템 아키텍처
-
-<p align="center">
-  <img src="assets/images/project_architecture.png" width="100%" alt="치와와 전체 시스템 아키텍처" />
-</p>
-
-<details>
-<summary><strong>Mermaid 원본 다이어그램 보기</strong></summary>
-
-<br>
-
-```mermaid
-flowchart TB
-    subgraph Frontend
-        F[Flutter App + Web]
-        R[Riverpod State]
-        D[Dio API Client]
-    end
-
-    subgraph Backend
-        API[FastAPI Routers]
-        SVC[Service Layer]
-        STATE[In-memory AppState]
-        DB[(SQLite)]
-        AUTH[Google OAuth + JWT]
-    end
-
-    subgraph AI
-        IMG[Image Search]
-        ROUTE[Route Planner]
-        FREE[Free Time Recommender]
-    end
-
-    subgraph External
-        GOOGLE_AUTH[Google OAuth]
-        VISION[Cloud Vision]
-        GEMINI[Gemini]
-        PLACES[Google Places]
-        ROUTES[Google Routes]
-        MODAL[Modal]
-    end
-
-    F --> R
-    R --> D
-    D --> API
-    API --> SVC
-    SVC --> STATE
-    SVC --> DB
-    SVC --> AUTH
-
-    SVC --> IMG
-    IMG --> VISION
-    IMG --> GEMINI
-    IMG --> PLACES
-    IMG --> MODAL
-
-    ROUTE --> ROUTES
-    ROUTE --> MODAL
-
-    FREE --> ROUTES
-    FREE --> PLACES
-
-    AUTH --> GOOGLE_AUTH
-```
-
-</details>
-
-### 파트별 역할
-
-| 파트 | 주요 역할 |
-|---|---|
-| 📱 Frontend | 사용자 화면, 상태 관리, API Repository, 사진 탐색과 Memorial 시각화 |
-| ⚙️ Backend | HTTP API, 인증, 여행 데이터 처리, 사진 검색 AI 호출과 프로토타입 상태 저장 |
-| 📷 Image Search | 사진 분석, 실제 장소 확정과 주변 후보 검색 |
-| 🗺️ Route Planner | 날짜 배정, 정확 방문 순서, 이동수단별 Route Option과 Timeline 생성 |
-| ⏰ Free Time Recommender | Route Leg 주변 장소 검색과 일정 삽입 가능성 평가 |
-| 🚀 Infrastructure | Docker 실행 환경, GitHub Actions CI와 Modal AI 배포 |
-
-### 현재 통합 관계
-
-현재 직접 연결된 주요 흐름:
-
-```text
-Frontend
-↔ Backend
-→ Image Search
-```
-
-다음 AI 모듈은 구현과 테스트가 완료되어 있지만 Backend의 기본 여행 API 전체가 직접 호출하는 상태는 아닙니다.
-
-```text
-Backend
-⇢ Route Planner
-⇢ Free Time Recommender
-```
-
-<br>
-
-## 7. 파트별 기술 스택
-
-### 📱 Frontend
-
-| 기술 | 사용 목적 |
-|---|---|
-| Flutter / Dart | App + Web 사용자 인터페이스 |
-| Riverpod | 인증, 여행, 일정, 사진 장소와 Memorial 상태 관리 |
-| Dio | FastAPI 통신과 JWT Header 처리 |
-| go_router | 화면 라우팅과 인증 Deep Link |
-| shared_preferences | JWT와 사용자 세션 정보 저장 |
-| CustomPainter | Memorial Paw Map과 여행 동선 시각화 |
-| Pretendard | 한글 UI 폰트 |
-
-### ⚙️ Backend
-
-| 기술 | 사용 목적 |
-|---|---|
-| Python 3.13+ | Backend 실행 환경 |
-| FastAPI | REST API와 OpenAPI 문서 |
-| Pydantic v2 | 요청·응답 및 설정 검증 |
-| pydantic-settings | 환경변수와 애플리케이션 설정 |
-| SQLite | Google 사용자와 Memorial 사진 메타데이터 저장 |
-| PyJWT | HS256 Access Token 발급과 검증 |
-| HTTPX | Google OAuth와 외부 서비스 통신 |
-| uv | 의존성, 실행과 빌드 |
-| pytest | API와 서비스 테스트 |
-| Ruff | 포맷과 Lint |
-| basedpyright | 정적 타입 검사 |
-
-### 📷 Image Search
-
-| 기술 | 사용 목적 |
-|---|---|
-| Python | 사진 장소 검색 파이프라인 |
-| Pydantic | 검색 요청과 결과 Schema |
-| Google Cloud Vision | 랜드마크 감지 |
-| Gemini | 장소명, 카테고리와 근거 추정 |
-| Google Places | 실제 장소, 좌표, Place ID와 주변 후보 |
-| HTTPX | 이미지와 외부 Provider 통신 |
-| pytest | Provider, Service와 Backend 계약 테스트 |
-| Modal | Image Search API 배포 |
-
-### 🗺️ Route Planner
-
-| 기술 | 사용 목적 |
-|---|---|
-| Python | 일정과 경로 Solver |
-| Pydantic | 여행 요청과 Route Option Schema |
-| Google Routes API | 이동수단별 Route Matrix |
-| Held-Karp DP | 날짜 내부 방문 순서의 정확 계산 |
-| Partition DP | 전체 POI의 정확 일자 배정 |
-| pytest | Solver, Provider, Evaluation과 E2E 테스트 |
-| Modal | Route Planner API 배포 |
-
-### ⏰ Free Time Recommender
-
-| 기술 | 사용 목적 |
-|---|---|
-| Python Dataclass | 추천 정책과 Domain Model |
-| Google Routes API | Route Geometry와 후보 경유 이동 지표 |
-| Google Places API | polyline 주변 카테고리 장소 검색 |
-| HTTPX | 외부 API Provider |
-| ZoneInfo | 여행 현지시간 변환 |
-| pytest | Domain, Adapter, Provider와 Use Case 테스트 |
-
-### 🚀 Infrastructure
-
-| 기술 | 사용 목적 |
-|---|---|
-| Docker | Backend 실행 이미지 |
-| GitHub Actions | AI CI, Main 병합 Guard와 Modal 배포 |
-| Modal | Image Search와 Route Planner API 실행 환경 |
-| Git / GitHub | 브랜치와 Pull Request 기반 협업 |
-
-<br>
-
-## 8. 프로젝트 구조
+## 🗂️ 프로젝트 구조
 
 ```text
 chiwawa/
 ├── frontend/                       # Flutter App + Web
 │   ├── lib/
 │   │   ├── app/
-│   │   ├── core/
-│   │   ├── features/
-│   │   └── shared/
-│   ├── assets/
-│   ├── test/
-│   └── README.md
-│
+│   │   ├── core/                   # API, Repository, Model, 인증
+│   │   └── features/               # 홈, 일정, 탐색, Memorial
+│   └── test/
 ├── backend/                        # FastAPI Backend
 │   ├── src/chiwawa_backend/
 │   │   ├── routers/
 │   │   ├── schemas/
-│   │   ├── services/
-│   │   └── sql/
-│   ├── docs/
-│   ├── tests/
-│   ├── pyproject.toml
-│   └── README.md
-│
+│   │   └── services/
+│   └── tests/
 ├── ai/
-│   ├── image_search/               # 사진 기반 장소 탐색
-│   │   ├── domain/
-│   │   ├── providers/
-│   │   ├── services/
-│   │   ├── scripts/
-│   │   ├── tests/
-│   │   ├── modal_app.py
-│   │   └── README.md
-│   │
-│   ├── route_planner/              # 일정 및 경로 최적화
-│   │   ├── benchmark/
-│   │   ├── domain/
-│   │   ├── evaluation/
-│   │   ├── providers/
-│   │   ├── services/
-│   │   ├── solvers/
-│   │   ├── tests/
-│   │   ├── modal_app.py
-│   │   └── README.md
-│   │
-│   └── free_time_recommender/      # Route Leg 삽입 추천
-│       ├── adapters/
-│       ├── application/
-│       ├── domain/
-│       ├── providers/
-│       ├── tests/
-│       └── README.md
-│
-├── artifacts/                      # AI Evaluation과 Benchmark 결과
+│   ├── image_search/               # 사진 기반 장소 확정
+│   ├── route_planner/              # 정확 일정·경로 최적화
+│   └── free_time_recommender/      # 경로 삽입 후보 추천
+├── artifacts/                      # 평가·Benchmark 결과
 ├── assets/images/                  # 통합 README 이미지
-├── .github/workflows/              # CI, Merge Guard와 Modal 배포
+├── .github/workflows/              # CI와 Modal 배포
 ├── Dockerfile
 └── README.md
 ```
 
-> `.dart_tool`, `__pycache__`, `.pytest_cache`, 로컬 데이터베이스와 환경변수 파일은 실행 과정에서 생성되는 개발 파일이므로 핵심 구조에서 제외합니다.
+### 상세 문서
+
+| 파트 | 문서 |
+|---|---|
+| Frontend | [`frontend/README.md`](frontend/README.md) |
+| Backend | [`backend/README.md`](backend/README.md) |
+| Backend API | [`backend/docs/api/reference.md`](backend/docs/api/reference.md) |
+| Image Search | [`ai/image_search/README.md`](ai/image_search/README.md) |
+| Route Planner | [`ai/route_planner/README.md`](ai/route_planner/README.md) |
+| Free Time Recommender | [`ai/free_time_recommender/README.md`](ai/free_time_recommender/README.md) |
 
 <br>
 
-## 9. 파트별 상세 문서
+<a id="getting-started"></a>
 
-통합 README에서는 각 파트의 대표 문서만 연결합니다.
+## ▶️ 실행 방법
 
-| 파트 | 문서 | 주요 내용 |
-|---|---|---|
-| 📱 Frontend | [`frontend/README.md`](frontend/README.md) | Flutter 실행, 화면 구현 범위와 API Base URL |
-| ⚙️ Backend | [`backend/README.md`](backend/README.md) | FastAPI 실행, 인증, 저장 범위, API 흐름과 품질 검사 |
-| 📷 Image Search | [`ai/image_search/README.md`](ai/image_search/README.md) | 사진 기반 장소 탐색 파트 대표 문서 |
-| 🗺️ Route Planner | [`ai/route_planner/README.md`](ai/route_planner/README.md) | 정확 일자 배정, 경로 최적화와 Timeline |
-| ⏰ Free Time Recommender | [`ai/free_time_recommender/README.md`](ai/free_time_recommender/README.md) | Route Leg 주변 검색과 후보 삽입 가능성 평가 |
-
-> 루트 README는 전체 서비스와 파트 간 연결 구조를 설명합니다. 각 파트의 내부 구현은 해당 대표 README에서 관리합니다.
-
-<br>
-
-## 10. 기본 실행 방법
-
-### 10-1. 저장소 클론
+### Backend
 
 ```bash
 git clone https://github.com/hekim-cse/chiwawa.git
-cd chiwawa
-```
-
-### 10-2. Backend
-
-```bash
-cd backend
+cd chiwawa/backend
 
 cp .env.example .env
 uv sync --frozen
@@ -621,468 +338,117 @@ uv sync --frozen
 PYTHONPATH=..:src \
 uv run uvicorn chiwawa_backend.main:app \
   --reload \
-  --no-access-log \
   --host 127.0.0.1 \
   --port 8000
 ```
 
-또는:
-
-```bash
-cd backend
-make run
-```
-
-API 문서:
-
 | 항목 | URL |
 |---|---|
-| Swagger 진입 | `http://127.0.0.1:8000/` |
 | Swagger UI | `http://127.0.0.1:8000/docs` |
 | ReDoc | `http://127.0.0.1:8000/redoc` |
 | OpenAPI JSON | `http://127.0.0.1:8000/openapi.json` |
 | Health Check | `http://127.0.0.1:8000/health` |
 
-인증 설정이 없어도 상태 확인, API 문서와 인증이 필요하지 않은 프로토타입 API는 실행할 수 있습니다.
-
-### 10-3. Frontend
+### Frontend API 연동 모드
 
 ```bash
 cd frontend
 flutter pub get
-```
 
-Backend와 연결한 Web 실행:
-
-```bash
 flutter run -d chrome \
+  --dart-define=USE_API=true \
   --dart-define=API_BASE_URL=http://127.0.0.1:8000
 ```
 
-Web Server 모드:
+`USE_API`를 지정하지 않으면 화면 검증용 Mock Repository를 사용할 수 있습니다.
 
-```bash
-flutter run -d web-server \
-  --web-hostname 127.0.0.1 \
-  --web-port 5190 \
-  --dart-define=API_BASE_URL=http://127.0.0.1:8000
-```
-
-Android Emulator:
-
-```bash
-flutter run -d android \
-  --dart-define=API_BASE_URL=http://10.0.2.2:8000
-```
-
-실제 기기:
-
-```bash
-flutter run -d <device-id> \
-  --dart-define=API_BASE_URL=http://<개발-PC-LAN-IP>:8000
-```
-
-### 10-4. Image Search
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-
-python -m pip install --upgrade pip
-python -m pip install -r ai/image_search/requirements.txt
-```
-
-환경변수 예시:
+### 주요 환경변수
 
 ```text
-ai/image_search/.env.example
+GOOGLE_MAPS_API_KEY=
+GOOGLE_CLOUD_VISION_API_KEY=
+GEMINI_API_KEY=
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_REDIRECT_URI=
+JWT_SECRET=
+IMAGE_SEARCH_URL=
+ROUTE_PLANNER_URL=
+FREE_TIME_RECOMMENDER_URL=
+APP_DB_PATH=data/chiwawa.db
 ```
 
-테스트:
-
-```bash
-PYTHONPATH=. \
-pytest ai/image_search/tests
-```
-
-### 10-5. Route Planner
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-
-python -m pip install --upgrade pip
-python -m pip install -r ai/route_planner/requirements.txt
-```
-
-테스트:
-
-```bash
-PYTHONPATH=. \
-pytest ai/route_planner/tests
-```
-
-세부 실행 스크립트와 환경변수는 [`ai/route_planner/README.md`](ai/route_planner/README.md)를 참고합니다.
-
-### 10-6. Free Time Recommender
-
-Route Planner와 같은 Python 환경에서 실행할 수 있습니다.
-
-```bash
-PYTHONPATH=. \
-pytest ai/free_time_recommender/tests
-```
-
-Google Places와 Google Routes 실제 요청에는 Provider API Key 설정이 필요합니다.
+실제 Secret은 Git에 포함하지 않으며, Modal 배포에서는 GitHub Actions Secret과
+Modal Secret을 통해 주입합니다.
 
 <br>
 
-## 11. 주요 API와 연동 흐름
+<a id="main-api"></a>
 
-Backend의 전체 HTTP 계약은 `backend/docs/api/reference.md`에서 관리합니다.
+## 🔌 주요 API
 
-### 인증
-
-| Method | Endpoint | 설명 |
+| Method | Endpoint | 역할 |
 |---|---|---|
-| `GET` | `/api/v1/auth/google/login` | Google OAuth 로그인 시작 |
-| `GET` | `/api/v1/auth/google/callback` | OAuth Callback 처리와 JWT 발급 |
-| `GET` | `/api/v1/auth/me` | 현재 인증 사용자 조회 |
-
-### 여행과 일정
-
-| Method | Endpoint | 설명 |
-|---|---|---|
+| `GET` | `/api/v1/auth/google/login` | Google OAuth 시작 |
+| `GET` | `/api/v1/auth/google/callback` | Callback 검증과 JWT 발급 |
 | `POST` | `/api/v1/trips` | 여행 생성 |
-| `GET` | `/api/v1/trips` | 여행 목록 조회 |
-| `POST` | `/api/v1/trips/{trip_id}/wanted-places` | 방문 희망 장소 등록 |
-| `POST` | `/api/v1/trips/{trip_id}/ai-plans` | 일정 초안 생성 |
-| `GET` | `/api/v1/trips/{trip_id}/plans/{plan_id}` | 일정 초안 조회 |
-| `POST` | `/api/v1/trips/{trip_id}/plans/{plan_id}/confirm` | 일정 확정 |
+| `POST` | `/api/v1/trips/{trip_id}/wanted-places` | 일정 후보 장소 저장 |
+| `POST` | `/api/v1/trips/{trip_id}/photo-places/search` | 사진 장소 분석 |
+| `POST` | `/api/v1/trips/{trip_id}/photo-places/{search_id}/confirm` | 사진 장소 일정 후보 확정 |
+| `POST` | `/api/v1/trips/{trip_id}/route-optimizations` | 실제 경로 최적화 |
+| `POST` | `/api/v1/trips/{trip_id}/route-optimizations/confirm` | 최적화 일정 확정·영속화 |
+| `GET` | `/api/v1/trips/{trip_id}/route-optimizations/confirmed` | 확정 경로 조회 |
+| `GET` | `/api/v1/trips/{trip_id}/travel/free-time-recommendations` | 빈 시간 추천 조회 |
+| `POST` | `/api/v1/memorial/photos` | Memorial 사진 메타데이터 등록 |
+| `POST` | `/api/v1/trips/{trip_id}/memorial/generate` | 날짜별 Memorial 생성 |
 
-현재 `/ai-plans`의 Backend 기본 구현은 시연용 모의 일정입니다.
-
-### 사진 장소 검색
-
-```text
-Flutter Explore
-→ Backend Photo Places Router
-→ Image Search
-→ Cloud Vision + Gemini
-→ Google Places
-→ 후보 목록
-→ Frontend 결과 카드
-→ 방문 희망 장소로 저장
-```
-
-사진 장소 검색은 인증 사용자 API이며 실제 외부 Provider Key 설정이 필요합니다.
-
-### 여행 중 보조 기능
-
-- 오늘 일정 조회
-- 빈 시간 추천
-- 현재 위치 주변 추천
-- 일정 지연 재계획
-
-Backend 응답은 최근 경로 최적화에 포함된 실제 Free Time Recommender 결과를
-사용합니다. 추천 장소명, 체류시간, 추가 이동시간은 Modal과 Google Provider가
-검증한 값을 기준으로 반환합니다.
-
-### Memorial
-
-```text
-Flutter Memorial
-→ JWT Bearer 인증
-→ Memorial Photo Metadata API
-→ SQLite
-→ 날짜별 여행 기록 생성
-→ Paw Map과 사진 타임라인
-```
-
-사진 원본 자체가 아니라 촬영시각, 위치와 사용자 수정 메타데이터를 저장합니다.
+전체 HTTP 계약은 [`backend/docs/api/reference.md`](backend/docs/api/reference.md)에서
+관리합니다.
 
 <br>
 
-## 12. 테스트와 품질 관리
+<a id="collaboration"></a>
 
-### Frontend
+## 🤝 협업 방식
 
-```bash
-cd frontend
-
-flutter analyze
-flutter test
-flutter build web
-```
-
-주요 테스트:
-
-- Repository와 JSON Model
-- Trip Scope 상태
-- Plan Itinerary
-- OAuth Deep Link
-- Memorial 사진 편집
-- Paw Map과 Timeline
-- 공통 Widget 모듈
-
-### Backend
-
-```bash
-cd backend
-
-uv run ruff format --check .
-uv run ruff check .
-uv run basedpyright
-uv run pytest
-uv build --wheel
-```
-
-또는:
-
-```bash
-cd backend
-make check
-```
-
-주요 테스트:
-
-- API Pipeline
-- Google OAuth와 JWT
-- OAuth State
-- CORS
-- 명령 멱등성
-- 일정 확정 원자성
-- 날짜 및 시간 경계
-- Trip 날짜 정합성
-- Memorial과 Demo Mode
-- 동시성 상태 관리
-
-### AI
-
-```bash
-PYTHONPATH=. pytest ai/image_search/tests
-PYTHONPATH=. pytest ai/route_planner/tests
-PYTHONPATH=. pytest ai/free_time_recommender/tests
-```
-
-Route Planner의 평가와 Benchmark 결과는 `artifacts/`에 저장됩니다.
+치와와는 기능별 작업 브랜치와 Pull Request 리뷰를 통해 개발했습니다. 개발 완료 후
+운영 브랜치는 `main`으로 단일화했습니다.
 
 ```text
-artifacts/
-├── clustering_evaluation_result.json
-├── e2e_benchmark_result.json
-└── route_evaluation_result.json
-```
-
-### GitHub Actions
-
-| Workflow | 역할 |
-|---|---|
-| `ai-image-search-ci.yml` | Image Search 테스트와 검증 |
-| `ai-route-planner-ci.yml` | Route Planner 테스트와 검증 |
-| `main-merge-guard.yml` | Main 병합 보호 검사 |
-| `modal-image-search-deploy.yml` | Modal Image Search 배포 |
-| `modal-route-planner-deploy.yml` | Modal Route Planner 배포 |
-
-<br>
-
-## 13. 협업 방식
-
-치와와는 Pull Request 기반으로 작업합니다.
-
-```text
-main
-└── 최종 통합 및 릴리즈
-
-develop
-└── 기능 통합 브랜치
-
-feat/*
-fix/*
-refactor/*
-docs/*
-└── 작업 단위 브랜치
-```
-
-### 기본 작업 흐름
-
-```bash
-git switch develop
-git pull --ff-only origin develop
-git switch -c feat/작업명
-```
-
-```text
-작업 브랜치 생성
-→ 구현
+feat/* · fix/* · refactor/* · docs/*
 → 로컬 테스트
 → Commit
-→ Push
-→ develop 대상 Pull Request
+→ main 대상 Pull Request
 → Review
-→ develop 병합
-→ develop에서 main 대상 통합 Pull Request
+→ main 병합
+→ GitHub Actions 검증·Modal 배포
 ```
-
-### Commit Convention
 
 | 타입 | 의미 | 예시 |
 |---|---|---|
 | `feat` | 기능 추가 | `feat: 사진 장소 검색 API 추가` |
 | `fix` | 오류 수정 | `fix: 일정 확정 중복 생성 방지` |
 | `refactor` | 구조 개선 | `refactor: 추천 Provider 인터페이스 분리` |
-| `docs` | 문서 변경 | `docs: 통합 README 작성` |
-| `test` | 테스트 변경 | `test: Memorial 위치 수정 테스트 추가` |
+| `docs` | 문서 변경 | `docs: 글로벌 서비스 README 개편` |
+| `test` | 테스트 변경 | `test: 확정 경로 영속화 회귀 테스트 추가` |
 | `chore` | 설정 및 기타 | `chore: CI 실행 환경 수정` |
 
-<br>
-
-## 14. 현재 제약과 확장 방향
-
-### 현재 제약
-
-- Frontend 일부 상태와 화면은 Mock 또는 Prototype 데이터를 지원합니다.
-- Backend의 여행·일정·추천 데이터 대부분은 메모리에 저장되어 재시작 시 초기화됩니다.
-- Google 사용자와 Memorial 사진 메타데이터만 SQLite에 영속 저장됩니다.
-- 여행 관련 API 일부는 아직 인증과 사용자 소유권 검증이 없습니다.
-- Backend의 일정 초안과 현재 위치 기반 주변 추천은 현재 시연용 구현입니다.
-- Route Planner와 Free Time Recommender가 Backend 기본 여행 흐름에 완전히 통합되지 않았습니다.
-- Route Planner 정확 Solver는 기본 POI 12개 제한을 가집니다.
-- 외부 Google API와 Gemini 사용에는 별도 Key와 비용이 필요합니다.
-- AI Provider에 장기 Cache, 자동 Retry와 Circuit Breaker가 없습니다.
-- Memorial은 사진 원본 저장 서비스가 아니라 메타데이터와 표시 흐름 중심입니다.
-- 실제 운영 배포를 위한 사용자 권한, Secret 관리와 영속 데이터베이스 확장이 필요합니다.
-
-### 우선 확장 방향
-
-```text
-1. Backend 모의 일정 생성
-   → Route Planner 실제 호출로 교체
-
-2. Backend 빈 시간·주변 추천
-   → Free Time Recommender 실제 호출로 교체
-
-3. 여행 API
-   → JWT 사용자 소유권 검증 추가
-
-4. In-memory AppState
-   → 영속 데이터베이스로 이전
-
-5. Frontend Mock State
-   → Backend API Repository 연결 확대
-
-6. Memorial
-   → 사진 원본 저장소와 공유 결과 생성 연동
-
-7. AI Provider
-   → Retry, Rate Limit, Cache와 운영 모니터링 추가
-```
+<details>
+<summary><strong>운영 환경 확장 시 고려사항</strong></summary>
 
 <br>
 
-## 15. 개선 기록
+- 정확 경로 Solver는 기본 POI 12개 범위에서 동작합니다.
+- Google API와 Gemini 사용에는 인증 정보·호출량·비용 관리가 필요합니다.
+- Memorial 원본 파일은 현재 로컬 파일시스템에 저장하므로 다중 인스턴스 운영 시 Object Storage 연동이 필요합니다.
+- 여행 관련 일부 프로토타입 API는 운영 공개 전에 사용자 소유권 검증을 확대해야 합니다.
+- 대규모 운영에서는 SQLite 확장, Rate Limit, Cache와 모니터링 정책을 추가로 검토할 수 있습니다.
 
-### 사진 장소 검색: 증거 기반 후보 (2026-10)
-
-사진 촬영 위치를 추정하는 오픈소스 에이전트 스킬 [Oldcircle/geo-sleuth](https://github.com/Oldcircle/geo-sleuth)(MIT, © 2026 Oldcircle)의 원칙을 사진 기반 장소 검색에 옮겼습니다. geo-sleuth는 에이전트가 수십 분 동안 스크립트를 돌리는 방식이라 요청 경로(Modal 120초)에 그대로 넣을 수 없어, **코드가 아니라 원칙만** 가져와 Google Places 호출 몇 번으로 구현했습니다. 응답 계약은 바꾸지 않았습니다.
-
-#### 무엇이 달라졌나
-
-| 영역 | 변경 전 | 변경 후 |
-|---|---|---|
-| 위치 정보 활용 | 요청의 위치 힌트를 받기만 하고 쓰지 않음. 업로드 사진의 EXIF GPS도 읽지 않음 | 랜드마크 감지 좌표, 촬영 좌표(EXIF GPS), 여행 도시 좌표 순으로 위치 prior를 정해 이름 검색을 그 주변으로 편향하고, 반경 안의 결과를 1순위로 올림 |
-| 같은 이름의 장소 | Places 첫 결과 1건을 검증 없이 채택 (서버 IP 근처의 지점이 정답이 될 수 있음) | 5건을 받아 증거로 1순위를 정하고, 나머지는 동명 후보(기본 2개)로 제시. 촬영 좌표가 있으면 그 지점 바로 앞(200m)의 결과가 최우선이고, 바로 앞에 결과가 없으면 가까운 순으로 한 번 더 검색. 촬영 좌표가 없어 지점을 가릴 수 없으면 확신도를 낮추고 그렇게 적음 |
-| 폐업한 장소 | 후보로 나올 수 있음 | Places의 영업 상태를 받아 폐업한 곳은 제외 |
-| 이름을 못 읽은 사진 | 곧바로 실패 ("사진에서 장소 후보를 찾지 못했어요") | Gemini가 읽은 간판 글자를 여행지 범위에서 검색. 그래도 없고 촬영 좌표가 있으면 반경 200m의 장소를 거리순으로 제시 |
-| 화면 | 후보의 이름·주소·일치도만 표시. 카테고리 칩은 항상 비어 있음 | 후보마다 근거 문구 표시 (예: "같은 이름으로 검색된 다른 장소", "사진 속 글자 '…'(으)로 검색한 장소"). Backend가 카테고리를 내려 주고 화면이 한글 이름으로 표시 |
-| 웹 업로드 | 사진을 고를 때 압축 품질을 지정해 브라우저가 사진을 다시 그리면서 EXIF(촬영 좌표)가 사라짐 | 웹에서는 원본을 그대로 올려 촬영 좌표가 Backend까지 도착. 큰 사진(4MB 초과)은 Backend가 좌표를 읽은 뒤 줄여서 인식 서비스로 보냄. 20MB 초과는 올리기 전에 안내 |
-| EXIF 처리 | 압축 폭탄 이미지에서 예외, 방향 태그 없는 좌표를 북반구·동반구로 가정 | 둘 다 안전하게 버림 |
-| 운영 | — | 동명 후보 개수를 환경변수 `IMAGE_SEARCH_MAX_ALTERNATIVES`로 조절(0이면 끔). 외부 호출이 전부 지연돼도 Modal 한도 안에 끝나도록 선택적 호출에 시간 예산 적용. 여행 도시 좌표는 Backend가 도시별로 한 번만 찾아 넘김(원격 Modal 구성) |
-
-#### 변경 전·후 비교: 실사진·실 API (2026-10-08)
-
-촬영 좌표가 붙은 공개 사진(Wikimedia Commons) 63장을 실제 Cloud Vision·Gemini·Places로 돌린 결과입니다. 첫 후보가 정답에서 150m 안이면 정답으로 셉니다. 정답 지점이 Places에 없는 3장(폐업 등)은 뺐습니다.
-
-| 지표 | 변경 전 | 변경 후 |
-|---|---|---|
-| **촬영 좌표 없음 (60장)** — 첫 후보가 정답 | 30 | 36 |
-| 정답이 후보 목록 안에 있음 | 32 | 40 |
-| 후보를 하나도 못 냄 | 8 | 3 |
-| **촬영 좌표 있음 (59장)** — 첫 후보가 정답 | 29 | 53 |
-| 정답이 후보 목록 안에 있음 | 31 | 56 |
-| 후보를 하나도 못 냄 | 8 | 0 |
-
-유형별 첫 후보 정답 수(촬영 좌표가 있는 59장):
-
-| 유형 | 사진 | 변경 전 | 변경 후, 좌표 없음 | 변경 후, 좌표 있음 |
-|---|---|---|---|---|
-| 랜드마크 | 16 | 12 | 13 | 13 |
-| 체인점 | 26 | 5 | 10 | 25 |
-| 거리·시장 | 11 | 7 | 7 | 10 |
-| 개별 가게·건물 | 6 | 5 | 5 | 5 |
-
-- **차이는 거의 전부 체인점에서 났고, 촬영 좌표가 있어야 납니다.** 좌표가 없으면 편의점·카페 체인은 같은 도시의 다른 지점이 답으로 나옵니다. 이런 후보는 확신도를 낮추고 근거 문구에 "촬영 위치가 없어 같은 이름의 다른 지점일 수 있음"을 붙입니다.
-- 변경 전 코드는 위치 없이 이름만 검색해, 호출한 PC(한국)의 IP에 끌려 미스터도넛·코코이찌방야 사진에 한국 매장을 답했습니다.
-- 변경 전에 맞히던 사진 중 틀리게 된 것은 1장이고 폐업 매장입니다(변경 전 코드는 폐업한 매장을 답했음).
-- 측정 결과를 보고 고친 것: 간판에 없는 지점명을 지어내지 않게 하는 프롬프트 한 문장, 촬영 지점 바로 앞(200m) 결과 우선, 바로 앞에 결과가 없을 때 가까운 순으로 한 번 더 검색, 폐업 장소 제외.
-
-> 표본이 60장이고 Places는 같은 요청에도 결과가 달라질 때가 있어, 한두 장 차이는 우연일 수 있습니다. 공개 사진은 누군가 올리려고 고른 사진이라 실제 사용자 사진과 다를 수 있습니다. 방향을 보여 주는 숫자이지 "정확도 몇 %"로 읽을 숫자는 아닙니다.
-
-#### API 비용: 변경 전과 후
-
-사진 1,000장당 정가입니다(2026-10-08 공식 가격표, 무료 한도 미적용, 63장 측정의 호출 수 기준).
-
-| 구성 | 사진당 Places 호출 | Vision | Gemini | Places | 합계 |
-|---|---|---|---|---|---|
-| 변경 전 | 1.76 | $1.5 | 약 $4.5 | $61.7 | 약 $68 |
-| 변경 후 — 원격(Modal) 구성, 촬영 좌표 없음 | 1.90 | $1.5 | 약 $4.5 | $66.7 | 약 $73 (+7%) |
-| 변경 후 — 촬영 좌표 있음 | 2.11 | $1.5 | 약 $4.5 | $74.0 | 약 $80 (+18%) |
-| 변경 후 — in-process 구성, 촬영 좌표 없음 | 2.76 | $1.5 | 약 $4.5 | $96.7 | 약 $103 (+52%) |
-
-- 비용의 90% 이상이 Places입니다(이름 검색·근처 검색 모두 $35 / 1,000건). Vision과 Gemini 비용은 변경 전·후가 사실상 같습니다.
-- 변경 전 평균이 낮은 것은 63장 중 8장이 후보를 못 내고 일찍 끝났기 때문입니다. 답을 낸 사진만 보면 변경 전도 장당 2.0회입니다.
-- 촬영 좌표가 있을 때 늘어나는 호출은 "바로 앞에 결과가 없으면 가까운 순으로 한 번 더"입니다(62장 중 10장).
-- in-process 구성의 추가 비용은 인식 모듈이 여행 도시 좌표를 요청마다 찾기 때문입니다. 원격 구성은 Backend가 도시별로 한 번만 찾습니다.
-- 원격 구성에서 월 1,000장 정도까지는 Places와 Vision이 무료 한도 안이라 Gemini 비용만 남습니다.
-
-단가 근거, 최악의 경우, 줄일 수 있는 곳은 [검증 기록 9.5절·10.7절](ai/image_search/docs/evidence-ranking-before-after.md)에 있습니다.
-
-#### 변경 전·후 비교: 시나리오 재생
-
-실 API 키가 없던 1~3차에서 후보 선택 로직만 비교한 결과입니다. 같은 시나리오 13개를 변경 전 코드와 변경 후 코드에 재생했습니다(정답이 있는 12개 기준).
-
-| 지표 | 변경 전 | 변경 후 |
-|---|---|---|
-| 첫 후보가 정답 | 4 / 12 | 10 / 12 |
-| 정답이 후보 목록 안에 있음 | 4 / 12 | 12 / 12 |
-| 후보를 하나도 못 냄 | 3 | 0 |
-| Places 호출 수 (13개 합계) | 19 | 25 ~ 31 |
-
-> 이 표는 실사진·실 API 측정이 아닙니다. Vision·Gemini 출력은 시나리오에 고정했고 Places는 가짜로 흉내 냈습니다. 같은 입력에서 후보 선택 로직이 어떻게 달라졌는지만 보여 줍니다.
-
-첫 후보가 정답이 아닌 2건은 같은 도시에 같은 이름의 지점이 둘 있는 경우이며, 정답은 2순위 후보로 남습니다(촬영 좌표가 있으면 지점까지 맞습니다). Places 호출이 늘어난 것은 전에는 호출 없이 실패하던 사진을 이제 검색하고, 촬영 좌표가 있는데 바로 앞에 결과가 없으면 가까운 순으로 한 번 더 찾기 때문입니다(25회). 여행 도시 좌표를 인식 모듈이 직접 찾는 구성(Backend in-process)에서는 좌표 없는 요청마다 1회씩 더해져 31회가 되고, 원격 Modal 구성에서는 Backend가 도시별로 한 번만 찾아 넘기므로 25회에 도시당 1회가 전부입니다.
-
-#### 남은 것
-
-- **사용자가 직접 찍은 사진으로는 재지 못했습니다.** 공개 사진 63장으로 쟀습니다(`ai/image_search/scripts/evaluate_photos.py`).
-- **모바일 앱에서 촬영 좌표가 도착하는지는 기기에서 확인해야 합니다.** 웹은 원본을 올리므로 도착합니다. iOS는 사진·카메라 접근 사유 문구가 없어 사진을 고를 때 앱이 종료될 수 있던 것을 고쳤지만 실행해 보지 못했고, Android는 OS의 사진 선택기가 위치 정보를 지울 수 있습니다. 확인 방법: 사진을 올리면 Backend 콘솔에 `사진 업로드: 촬영 좌표 있음/없음`이 찍힙니다.
-- **촬영 좌표가 없는 체인점 사진은 지점을 맞히지 못합니다.** 모른다고 표시만 합니다.
-- Cloud Vision이 다른 랜드마크 이름을 높은 점수로 내면 그쪽이 Gemini 추정보다 우선합니다(63장 중 1장).
-- in-process 구성에서는 여행 도시 좌표를 요청마다 다시 찾습니다(원격 Modal 구성만 Backend가 한 번 찾아 넘김). 원격 구성보다 사진 1,000장에 약 $30 더 듭니다.
-
-#### 관련 문서
-
-| 문서 | 내용 |
-|---|---|
-| [`ai/image_search/README.md`](ai/image_search/README.md) | "증거 기반 후보" 절 — 원칙과 구현의 대응, 가져오지 않은 것, 한계 |
-| [`ai/image_search/docs/evidence-ranking-before-after.md`](ai/image_search/docs/evidence-ranking-before-after.md) | 실사진·실 API 측정과 API 비용(9·10절), 시나리오별 위치 오차, 결함 수정 확인, 재현 방법, 협업 기록 |
-| [`AGENTS.md`](AGENTS.md) | 에이전트 공통 작업 지침 (검증 명령, 불변식, 협업 규칙) |
-
-<br>
+</details>
 
 ---
 
 <p align="center">
   <strong>🐶 복잡한 건 치와 두고 일단 와</strong><br>
-  사진에서 시작해 일정과 이동, 여행 기록까지 이어지는 일본 자유여행 플래너
+  사진에서 시작해 일정과 이동, 여행 기록까지 이어지는 글로벌 여행 플래너
 </p>
